@@ -1,0 +1,7 @@
+**/node_modules/
+**/.claude/
+**/backups/
+*.log
+.env
+dist/
+build/

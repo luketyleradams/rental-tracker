@@ -1,0 +1,1316 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>Rental Tracker</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#fff;--bg2:#f5f5f2;--bg3:#edecea;
+  --text:#1a1a18;--t2:#5f5e5a;--t3:#909088;
+  --bdr:rgba(0,0,0,.11);--bdr2:rgba(0,0,0,.2);
+  --r:7px;--rl:11px;
+  --grn:#0F6E56;--red:#A32D2D;--amb:#854F0B;--blu:#185FA5;
+  --grn-bg:#EAF3DE;--grn-t:#3B6D11;
+  --red-bg:#FCEBEB;--red-t:#A32D2D;
+  --amb-bg:#FAEEDA;--amb-t:#854F0B;
+  --blu-bg:#E6F1FB;--blu-t:#185FA5;
+  --gry-bg:#F1EFE8;--gry-t:#5F5E5A;
+  --pur-bg:#EEEDFE;--pur-t:#3C3489;
+}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:var(--bg3);color:var(--text);min-height:100vh}
+.wrap{max-width:1060px;margin:0 auto;padding:1.5rem 1rem 3rem}
+
+/* top bar */
+.topbar{display:flex;justify-content:space-between;align-items:center;margin-bottom:1.2rem;flex-wrap:wrap;gap:8px}
+h1{font-size:18px;font-weight:600;display:flex;align-items:center;gap:9px}
+h1 .dot{width:9px;height:9px;border-radius:50%;background:var(--grn);display:inline-block}
+.status{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--t2)}
+.sdot{width:7px;height:7px;border-radius:50%;background:var(--grn);flex-shrink:0}
+.sdot.err{background:var(--red)}
+
+/* tabs */
+.tabs{display:flex;gap:1px;border-bottom:1px solid var(--bdr);margin-bottom:1.5rem;flex-wrap:wrap}
+.tab{padding:8px 14px;font-size:13px;border:none;background:none;cursor:pointer;color:var(--t2);border-bottom:2px solid transparent;margin-bottom:-1px;font-family:inherit;transition:color .1s}
+.tab.on{color:var(--text);border-bottom-color:var(--text);font-weight:600}
+.tab:hover:not(.on){color:var(--text);background:var(--bg2);border-radius:4px 4px 0 0}
+.sec{display:none}.sec.on{display:block}
+
+/* metric cards */
+.mg{display:grid;grid-template-columns:repeat(auto-fit,minmax(135px,1fr));gap:10px;margin-bottom:1.5rem}
+.mc{background:var(--bg2);border-radius:var(--r);padding:.9rem}
+.mc .ml{font-size:11px;color:var(--t2);text-transform:uppercase;letter-spacing:.04em;margin-bottom:5px}
+.mc .mv{font-size:21px;font-weight:600}
+
+/* cards */
+.card{background:var(--bg);border:1px solid var(--bdr);border-radius:var(--rl);padding:1rem 1.2rem;margin-bottom:1rem}
+.ct{font-size:11px;font-weight:600;color:var(--t2);text-transform:uppercase;letter-spacing:.07em;margin-bottom:.9rem}
+.fr{display:grid;grid-template-columns:repeat(auto-fit,minmax(135px,1fr));gap:10px;margin-bottom:10px}
+.fg label{font-size:12px;color:var(--t2);display:block;margin-bottom:4px}
+.fg input,.fg select,.fg textarea{width:100%;padding:7px 10px;border:1px solid var(--bdr2);border-radius:var(--r);font-size:13px;background:var(--bg);color:var(--text);font-family:inherit;outline:none}
+.fg input:focus,.fg select:focus,.fg textarea:focus{border-color:var(--blu);box-shadow:0 0 0 2px rgba(24,95,165,.13)}
+
+/* buttons */
+.btn{padding:7px 13px;border-radius:var(--r);font-size:13px;cursor:pointer;border:1px solid var(--bdr2);background:var(--bg);color:var(--text);font-family:inherit;font-weight:500;transition:background .1s}
+.btn:hover{background:var(--bg2)}.btn:active{transform:scale(.98)}
+.btn.p{background:var(--text);color:var(--bg);border-color:var(--text)}.btn.p:hover{opacity:.86}
+.btn.s{background:var(--grn);color:#fff;border-color:var(--grn)}.btn.s:hover{opacity:.86}
+.btn.d{color:var(--red);border-color:#f09595;font-size:12px;padding:4px 8px}.btn.d:hover{background:var(--red-bg)}
+.btn.w{color:var(--amb);border-color:#fac775;font-size:12px;padding:4px 8px}.btn.w:hover{background:var(--amb-bg)}
+.btn.xs{font-size:12px;padding:4px 9px}
+.btn:disabled{opacity:.45;cursor:default}
+
+/* tables */
+table{width:100%;border-collapse:collapse;font-size:13px;table-layout:fixed}
+th{text-align:left;padding:7px 10px;color:var(--t2);font-weight:600;border-bottom:1px solid var(--bdr);font-size:11px;text-transform:uppercase;letter-spacing:.04em}
+td{padding:8px 10px;border-bottom:1px solid var(--bdr);word-break:break-word;vertical-align:middle}
+tr:last-child td{border-bottom:none}
+tbody tr:hover td{background:var(--bg2)}
+
+/* badges */
+.badge{display:inline-block;padding:2px 7px;border-radius:4px;font-size:11px;font-weight:600}
+.bg{background:var(--grn-bg);color:var(--grn-t)}
+.br{background:var(--red-bg);color:var(--red-t)}
+.ba{background:var(--amb-bg);color:var(--amb-t)}
+.bb{background:var(--blu-bg);color:var(--blu-t)}
+.bgr{background:var(--gry-bg);color:var(--gry-t)}
+.bpu{background:var(--pur-bg);color:var(--pur-t)}
+
+/* layout helpers */
+.mnav{display:flex;align-items:center;gap:12px;margin-bottom:1rem}
+.mlbl{font-size:16px;font-weight:600;min-width:150px;text-align:center}
+.empty{text-align:center;padding:2rem;color:var(--t3);font-size:13px}
+.note{font-size:12px;color:var(--blu);margin-top:5px;min-height:16px;line-height:1.5}
+.sh{display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;flex-wrap:wrap;gap:8px}
+.sh h2{font-size:15px;font-weight:600}
+.frow{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.frow select,.frow input{font-size:12px;padding:6px 8px;border:1px solid var(--bdr2);border-radius:var(--r);background:var(--bg);color:var(--text);font-family:inherit}
+.mhint{font-size:12px;color:var(--t2);margin-top:4px}
+.two-col{display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-top:1rem}
+
+/* room rows */
+.rrow{display:flex;align-items:flex-start;gap:10px;padding:11px 0;border-bottom:1px solid var(--bdr)}
+.rrow:last-child{border-bottom:none}
+.rdot{width:9px;height:9px;border-radius:50%;margin-top:5px;flex-shrink:0}
+.rdot.occ{background:var(--grn)}.rdot.vac{background:var(--gry-t)}
+.rinfo{flex:1;min-width:0}
+.rtit{font-size:14px;font-weight:600}
+.rsub{font-size:12px;color:var(--t2);margin-top:2px}
+.prow{display:flex;gap:7px;align-items:center;padding:5px 0;border-bottom:.5px solid var(--bdr);flex-wrap:wrap}
+.prow:last-child{border-bottom:none}
+
+/* staff lines */
+.sline{display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid var(--bdr)}
+.sline:last-of-type{border-bottom:none}
+.sav{width:32px;height:32px;border-radius:50%;background:var(--blu-bg);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:600;color:var(--blu-t);flex-shrink:0}
+
+/* salary roster */
+.sar{display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid var(--bdr)}
+.sar:last-of-type{border-bottom:none}
+
+/* toast */
+.toast{position:fixed;bottom:1.5rem;right:1.5rem;background:var(--text);color:var(--bg);padding:9px 15px;border-radius:var(--r);font-size:13px;z-index:9999;opacity:0;transition:opacity .2s;pointer-events:none}
+.toast.show{opacity:1}.toast.err{background:var(--red)}
+
+/* spinner */
+.spin{display:inline-block;width:13px;height:13px;border:2px solid var(--bdr2);border-top-color:var(--text);border-radius:50%;animation:sp .6s linear infinite;vertical-align:middle;margin-right:5px}
+@keyframes sp{to{transform:rotate(360deg)}}
+
+/* modal */
+.overlay{position:fixed;inset:0;background:rgba(0,0,0,.44);display:flex;align-items:center;justify-content:center;z-index:1000}
+.modal{background:var(--bg);border-radius:var(--rl);padding:1.5rem;width:420px;max-width:95vw;border:1px solid var(--bdr2)}
+.modal h3{font-size:15px;font-weight:600;margin-bottom:.5rem}
+.modal p{font-size:13px;color:var(--t2);margin-bottom:1rem;line-height:1.5}
+.modal label{font-size:12px;color:var(--t2);display:block;margin-bottom:4px}
+.modal input,.modal select,.modal textarea{width:100%;padding:7px 10px;border:1px solid var(--bdr2);border-radius:var(--r);font-size:13px;font-family:inherit;background:var(--bg);color:var(--text);margin-bottom:10px}
+.modal textarea{resize:vertical;min-height:52px}
+.mbtns{display:flex;gap:8px;flex-wrap:wrap;margin-top:1rem}
+
+/* report */
+.rcard{border:1px solid var(--bdr);border-radius:var(--rl);padding:1.4rem;background:var(--bg);margin-top:1rem}
+.rhead{border-bottom:2px solid var(--text);padding-bottom:.9rem;margin-bottom:1.4rem}
+.rtit{font-size:19px;font-weight:700}
+.rsub{font-size:12px;color:var(--t2);margin-top:3px}
+.rsec{margin-bottom:1.4rem}
+.rsl{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--t2);border-bottom:1px solid var(--bdr);padding-bottom:5px;margin-bottom:9px}
+.rt{width:100%;border-collapse:collapse;font-size:12px}
+.rt th{text-align:left;padding:6px 8px;background:var(--bg2);font-weight:600;color:var(--t2);font-size:11px}
+.rt td{padding:6px 8px;border-bottom:1px solid var(--bdr)}
+.rt tr:last-child td{border-bottom:none}
+.rt .trow td{font-weight:700;border-top:1px solid var(--bdr2);background:var(--bg2)}
+.rsgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:10px;margin-bottom:1.4rem}
+.rsb{border:1px solid var(--bdr);border-radius:var(--r);padding:11px}
+.rsb .rl{font-size:11px;color:var(--t2);text-transform:uppercase;letter-spacing:.04em;margin-bottom:4px}
+.rsb .rv{font-size:17px;font-weight:700}
+.bchecks{display:flex;gap:14px;flex-wrap:wrap;margin-top:7px}
+.bchecks label{display:flex;align-items:center;gap:5px;cursor:pointer;font-size:13px}
+.bchecks input[type=checkbox]{width:auto}
+
+@media print{
+  body{background:#fff}
+  .wrap{max-width:100%;padding:0}
+  .tabs,.topbar,.card:not(.rcard){display:none!important}
+  .sec:not(#tab-reports){display:none!important}
+  #tab-reports.sec{display:block!important}
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<div class="topbar">
+  <h1><span class="dot"></span> Rental Tracker</h1>
+  <div class="status">
+    <span class="sdot" id="sdot"></span>
+    <span id="slbl">connecting…</span>
+    <button class="btn xs" onclick="doBackup()">&#128190; Backup now</button>
+  </div>
+</div>
+
+<div class="tabs">
+  <button class="tab on"  onclick="go('dashboard')">Dashboard</button>
+  <button class="tab"     onclick="go('payments')">Payments</button>
+  <button class="tab"     onclick="go('expenses')">Expenses</button>
+  <button class="tab"     onclick="go('rooms')">Rooms</button>
+  <button class="tab"     onclick="go('staff')">Staff</button>
+  <button class="tab"     onclick="go('reports')">Reports</button>
+</div>
+
+<!-- ── DASHBOARD ── -->
+<div id="tab-dashboard" class="sec on">
+  <div class="mnav">
+    <button class="btn" onclick="shiftMo(-1)">&larr;</button>
+    <span class="mlbl" id="dml">&mdash;</span>
+    <button class="btn" onclick="shiftMo(1)">&rarr;</button>
+  </div>
+  <div class="mg" id="dmet"></div>
+  <div class="card">
+    <div class="ct">Room ledger — <span id="dlbl"></span></div>
+    <div id="drooms"></div>
+  </div>
+  <div class="two-col">
+    <div class="card"><div class="ct">Recent payments</div><div id="drpay"></div></div>
+    <div class="card"><div class="ct">Recent expenses</div><div id="drexp"></div></div>
+  </div>
+</div>
+
+<!-- ── PAYMENTS ── -->
+<div id="tab-payments" class="sec">
+  <div class="card">
+    <div class="ct">Record payment</div>
+    <div class="fr">
+      <div class="fg"><label>Building</label><select id="pb" onchange="refillRooms()"></select></div>
+      <div class="fg"><label>Room</label><select id="pr" onchange="payPreview()"></select></div>
+      <div class="fg"><label>Month</label>
+        <div style="display:flex;align-items:center;gap:4px">
+          <button class="btn xs" onclick="shiftPayMo(-1)" style="padding:5px 9px">&#8592;</button>
+          <span id="pm-lbl" style="font-size:13px;min-width:100px;text-align:center;font-weight:500"></span>
+          <button class="btn xs" onclick="shiftPayMo(1)" style="padding:5px 9px">&#8594;</button>
+        </div>
+        <input type="hidden" id="pm"/>
+      </div>
+    </div>
+    <div class="fr">
+      <div class="fg"><label>Amount ($)</label><input type="number" id="pa" placeholder="0.00" min="0" step="0.01" oninput="payPreview()"/></div>
+      <div class="fg"><label>Days late</label><input type="number" id="pdl" value="0" min="0" step="1" oninput="payPreview()" style="width:100%"/></div>
+      <div class="fg"><label>Notes</label><input type="text" id="pn" placeholder="Optional"/></div>
+      <div class="fg" style="display:flex;align-items:flex-end"><button class="btn p" onclick="recPay()" style="width:100%">Add payment</button></div>
+    </div>
+    <div id="pprev" class="note"></div>
+  </div>
+  <div class="card">
+    <div class="sh"><h2>Payment history</h2>
+      <div class="frow">
+        <div id="fpb-ms"></div>
+        <input type="month" id="fpm" onchange="loadPay()"/>
+      </div>
+    </div>
+    <div id="pay-tbl"></div>
+  </div>
+</div>
+
+<!-- ── EXPENSES ── -->
+<div id="tab-expenses" class="sec">
+  <div class="card">
+    <div class="ct">Record expense</div>
+    <div class="fr">
+      <div class="fg"><label>Building</label><div id="eb-ms"></div></div>
+      <div class="fg"><label>Category</label>
+        <select id="ec" onchange="onCatChange()">
+          <option value="advertising">Advertising</option>
+          <option value="auto_travel">Auto and Travel</option>
+          <option value="cleaning_maintenance">Cleaning and Maintenance</option>
+          <option value="commissions">Commissions</option>
+          <option value="insurance">Insurance</option>
+          <option value="legal_professional">Legal and Professional Fees</option>
+          <option value="management_fees">Management Fees</option>
+          <option value="mortgage_interest">Mortgage Interest Paid to Banks</option>
+          <option value="other_interest">Other Interest</option>
+          <option value="repairs">Repairs</option>
+          <option value="supplies">Supplies</option>
+          <option value="taxes">Taxes</option>
+          <option value="utilities">Utilities</option>
+          <option value="depreciation">Depreciation / Depletion</option>
+          <option value="other_expenses">Other Expenses</option>
+          <option value="miles">Miles driven</option>
+        </select>
+      </div>
+      <div class="fg"><label>Month</label><input type="month" id="em"/></div>
+    </div>
+    <div class="fr">
+      <div class="fg">
+        <label id="eal">Amount ($)</label>
+        <input type="number" id="ea" placeholder="0.00" min="0" step="0.01" oninput="onMilesInput()"/>
+        <div id="mhint" class="mhint" style="display:none"></div>
+      </div>
+      <div class="fg"><label>Description</label><input type="text" id="ed" placeholder="Optional"/></div>
+      <div class="fg" style="display:flex;align-items:flex-end"><button class="btn p" onclick="recExp()" style="width:100%">Add expense</button></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="ct">Salary payments</div>
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:1rem;flex-wrap:wrap">
+      <div style="display:flex;align-items:center;gap:8px">
+        <label style="font-size:12px;color:var(--t2);white-space:nowrap">Pay month</label>
+        <input type="month" id="sm" onchange="loadSalRoster()" style="padding:6px 10px;border:1px solid var(--bdr2);border-radius:var(--r);font-size:13px;background:var(--bg);color:var(--text);font-family:inherit"/>
+      </div>
+      <button class="btn p xs" onclick="payAllStaff()">Pay all unpaid</button>
+    </div>
+    <div id="sal-roster"></div>
+  </div>
+
+  <div class="card">
+    <div class="sh"><h2>Expense history</h2>
+      <div class="frow">
+        <div id="feb-ms"></div>
+        <select id="fec" onchange="loadExp()">
+          <option value="">All categories</option>
+          <option value="advertising">Advertising</option>
+          <option value="auto_travel">Auto and Travel</option>
+          <option value="cleaning_maintenance">Cleaning and Maintenance</option>
+          <option value="commissions">Commissions</option>
+          <option value="insurance">Insurance</option>
+          <option value="legal_professional">Legal and Professional Fees</option>
+          <option value="management_fees">Management Fees</option>
+          <option value="mortgage_interest">Mortgage Interest Paid to Banks</option>
+          <option value="other_interest">Other Interest</option>
+          <option value="repairs">Repairs</option>
+          <option value="supplies">Supplies</option>
+          <option value="taxes">Taxes</option>
+          <option value="utilities">Utilities</option>
+          <option value="depreciation">Depreciation / Depletion</option>
+          <option value="other_expenses">Other Expenses</option>
+          <option value="miles">Mileage</option>
+          <option value="salaries">Salaries</option>
+          <option value="refund">Refunds</option>
+          <option value="writeoff">Write-offs</option>
+          <option value="misc">Misc (legacy)</option>
+        </select>
+        <input type="month" id="fem" onchange="loadExp()"/>
+      </div>
+    </div>
+    <div id="exp-tbl"></div>
+  </div>
+</div>
+
+<!-- ── ROOMS ── -->
+<div id="tab-rooms" class="sec">
+  <div class="card">
+    <div class="ct" style="display:flex;justify-content:space-between;align-items:center">Add room <button class="btn xs" onclick="openBuildingsSettings()">&#9881; Buildings</button></div>
+    <div class="fr">
+      <div class="fg"><label>Building</label><select id="nrb"></select></div>
+      <div class="fg"><label>Room number</label><input type="text" id="nrn" placeholder="e.g. 101"/></div>
+      <div class="fg"><label>Base rent ($/mo)</label><input type="number" id="nrr" placeholder="0.00" min="0" step="0.01"/></div>
+      <div class="fg" style="display:flex;align-items:flex-end"><button class="btn p" onclick="addRoom()" style="width:100%">Add room</button></div>
+    </div>
+    <div class="fr">
+      <div class="fg"><label>Late fee type</label>
+        <select id="nrlft" onchange="$('nrlfv-wrap').style.display=this.value?'block':'none';$('nrlfv-lbl').textContent=this.value==='percent'?'% of base rent/day':'$/day'">
+          <option value="">No late fee</option>
+          <option value="fixed">Fixed $ per day</option>
+          <option value="percent">% of base rent per day</option>
+        </select>
+      </div>
+      <div class="fg" id="nrlfv-wrap" style="display:none">
+        <label id="nrlfv-lbl">$/day</label>
+        <input type="number" id="nrlfv" placeholder="0.00" min="0" step="0.01"/>
+      </div>
+    </div>
+  </div>
+  <div id="rooms-list"></div>
+</div>
+
+<!-- ── STAFF ── -->
+<div id="tab-staff" class="sec">
+  <div class="card">
+    <div class="ct">Add staff member</div>
+    <div class="fr">
+      <div class="fg"><label>Name</label><input type="text" id="sfn" placeholder="e.g. Maria Torres"/></div>
+      <div class="fg"><label>Role</label><input type="text" id="sfr" placeholder="e.g. Maintenance"/></div>
+      <div class="fg"><label>Building</label><div id="sfb-ms"></div></div>
+      <div class="fg"><label>Monthly pay ($)</label><input type="number" id="sfp" placeholder="0.00" min="0" step="0.01"/></div>
+      <div class="fg" style="display:flex;align-items:flex-end"><button class="btn p" onclick="addStaff()" style="width:100%">Add</button></div>
+    </div>
+  </div>
+  <div class="card"><div class="ct">Staff roster</div><div id="staff-list"></div></div>
+</div>
+
+<!-- ── REPORTS ── -->
+<div id="tab-reports" class="sec">
+  <div class="card">
+    <div class="ct">Report settings</div>
+    <div class="fr">
+      <div class="fg"><label>From month</label><input type="month" id="rf"/></div>
+      <div class="fg"><label>To month</label><input type="month" id="rt"/></div>
+      <div class="fg"><label>Group by</label>
+        <select id="rg"><option value="all">Combined</option><option value="month">By month</option></select>
+      </div>
+    </div>
+    <div style="margin-bottom:12px">
+      <label style="font-size:12px;color:var(--t2)">Buildings</label>
+      <div class="bchecks" id="rbc"></div>
+    </div>
+    <div style="display:flex;gap:8px">
+      <button class="btn p" onclick="genReport()">Preview report</button>
+      <button class="btn s" onclick="window.print()">Print / Save PDF</button>
+    </div>
+  </div>
+  <div id="rep-out"></div>
+</div>
+
+<div id="modal-root"></div>
+<div class="toast" id="toast"></div>
+</div><!-- end .wrap -->
+
+<script>
+'use strict';
+// ─── App state ────────────────────────────────────────────────────────────────
+let ROOMS = [], STAFF = [], CUR_MO = '';
+let BUILDINGS_LIST = [];
+const MRATE = 0.725;
+
+// ─── Utilities ────────────────────────────────────────────────────────────────
+const $ = id => document.getElementById(id);
+const fmt = n => '$' + (+n).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
+const fmtMo = m => { if(!m) return ''; const[y,mo]=m.split('-'); return new Date(+y,+mo-1,1).toLocaleDateString('en-US',{month:'long',year:'numeric'}); };
+const ini = n => n.trim().split(/\s+/).map(w=>w[0]).join('').toUpperCase().slice(0,2);
+const prevMo = m => { const[y,mo]=m.split('-').map(Number); const d=new Date(Date.UTC(y,mo-2,1)); return `${d.getUTCFullYear()}-${String(d.getUTCMonth()+1).padStart(2,'0')}`; };
+
+let _toastT;
+function toast(msg,err=false){
+  const el=$('toast'); el.textContent=msg;
+  el.className='toast show'+(err?' err':'');
+  clearTimeout(_toastT); _toastT=setTimeout(()=>el.classList.remove('show'),3200);
+}
+
+const TRASH_SVG=`<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>`;
+function trashBtn(onclickFn, titleText){
+  const btn=document.createElement('button');
+  btn.className='btn d xs'; btn.title=titleText; btn.innerHTML=TRASH_SVG;
+  btn.style.cssText='padding:4px 7px;line-height:0';
+  btn.addEventListener('click', onclickFn);
+  return btn;
+}
+
+function mkEl(tag,attrs={},children=[]){
+  const el=document.createElement(tag);
+  for(const[k,v] of Object.entries(attrs)){
+    if(k==='style') el.style.cssText=v;
+    else if(k.startsWith('on')) el.addEventListener(k.slice(2),v);
+    else el.setAttribute(k,v);
+  }
+  children.forEach(c=>typeof c==='string'?el.insertAdjacentHTML('beforeend',c):el.appendChild(c));
+  return el;
+}
+
+// ─── API ──────────────────────────────────────────────────────────────────────
+async function api(method,path,body){
+  const opts={method,headers:{'Content-Type':'application/json'}};
+  if(body!==undefined) opts.body=JSON.stringify(body);
+  const res=await fetch('/api'+path,opts);
+  const data=await res.json();
+  if(!res.ok) throw new Error(data.error||`HTTP ${res.status}`);
+  return data;
+}
+const GET  = p     => api('GET',p);
+const POST = (p,b) => api('POST',p,b);
+const PATCH= (p,b) => api('PATCH',p,b);
+const DEL  = p     => api('DELETE',p);
+
+// ─── Connection status ────────────────────────────────────────────────────────
+async function checkConn(){
+  try{ await GET('/health'); $('sdot').className='sdot'; $('slbl').textContent='connected'; }
+  catch{ $('sdot').className='sdot err'; $('slbl').textContent='server offline'; }
+}
+
+// ─── Modal helpers ────────────────────────────────────────────────────────────
+function showModal(html){ $('modal-root').innerHTML=`<div class="overlay" onclick="if(event.target===this)closeModal()">${html}</div>`; }
+function closeModal(){ $('modal-root').innerHTML=''; }
+
+// ─── Multi-select filter state ────────────────────────────────────────────────
+let _payBldSel = null; // null = all
+let _expBldSel = null;
+let _expBldForm = null;   // null = all buildings (= 'both')
+let _staffBldForm = null;
+
+function buildMultiSelect(containerId, buildings, currentSel, onChange) {
+  const container = $(containerId);
+  if (!container) return;
+  // Restore previous selection, dropping any buildings no longer in list
+  let sel = new Set(currentSel ? currentSel.filter(b => buildings.includes(b)) : buildings);
+  if (!sel.size) sel = new Set(buildings);
+
+  function label() {
+    if (!sel.size || sel.size === buildings.length) return 'All buildings';
+    if (sel.size === 1) return [...sel][0];
+    return sel.size + ' buildings';
+  }
+
+  function render() {
+    container.innerHTML = '';
+    const wrap = document.createElement('div');
+    wrap.style.cssText = 'position:relative;display:inline-block';
+
+    const btn = document.createElement('button');
+    btn.className = 'btn xs';
+    btn.style.cssText = 'font-size:12px;padding:6px 10px;min-width:118px;text-align:left;display:flex;justify-content:space-between;align-items:center;gap:6px';
+    btn.innerHTML = `<span>${label()}</span><span style="font-size:10px;color:var(--t2)">&#9660;</span>`;
+    btn.onclick = e => { e.stopPropagation(); togglePanel(); };
+    wrap.appendChild(btn);
+    container.appendChild(wrap);
+
+    function togglePanel() {
+      if (wrap.querySelector('.ms-panel')) { wrap.querySelector('.ms-panel').remove(); return; }
+      const panel = document.createElement('div');
+      panel.className = 'ms-panel';
+      panel.style.cssText = 'position:absolute;top:calc(100% + 3px);left:0;z-index:200;background:var(--bg);border:1px solid var(--bdr2);border-radius:var(--r);padding:4px 0;min-width:160px;box-shadow:0 4px 14px rgba(0,0,0,.13)';
+
+      function row(text, checked, onCh) {
+        const lbl = document.createElement('label');
+        lbl.style.cssText = 'display:flex;align-items:center;gap:8px;padding:6px 12px;font-size:13px;cursor:pointer;user-select:none';
+        lbl.onmouseover = () => lbl.style.background = 'var(--bg2)';
+        lbl.onmouseout  = () => lbl.style.background = '';
+        const cb = document.createElement('input');
+        cb.type = 'checkbox'; cb.checked = checked; cb.style.width = 'auto';
+        cb.addEventListener('change', () => onCh(cb.checked));
+        lbl.appendChild(cb); lbl.appendChild(document.createTextNode(text));
+        return lbl;
+      }
+
+      const allRow = row('All buildings', sel.size === buildings.length, checked => {
+        if (checked) buildings.forEach(b => sel.add(b)); else sel.clear();
+        // sync individual checkboxes
+        panel.querySelectorAll('input[type=checkbox]').forEach((cb,i)=>{ if(i>0) cb.checked=checked; });
+        const emit = sel.size === buildings.length ? null : [...sel];
+        onChange(emit);
+        btn.innerHTML = `<span>${label()}</span><span style="font-size:10px;color:var(--t2)">&#9660;</span>`;
+      });
+      panel.appendChild(allRow);
+      const hr = document.createElement('div');
+      hr.style.cssText = 'height:1px;background:var(--bdr);margin:3px 0';
+      panel.appendChild(hr);
+
+      buildings.forEach(b => {
+        panel.appendChild(row(b, sel.has(b), checked => {
+          if (checked) sel.add(b); else sel.delete(b);
+          const allCb = allRow.querySelector('input');
+          if (allCb) allCb.checked = sel.size === buildings.length;
+          const emit = sel.size === buildings.length ? null : [...sel];
+          onChange(emit);
+          btn.innerHTML = `<span>${label()}</span><span style="font-size:10px;color:var(--t2)">&#9660;</span>`;
+        }));
+      });
+
+      wrap.appendChild(panel);
+      setTimeout(() => {
+        function outside(e) { if (!wrap.contains(e.target)) { panel.remove(); document.removeEventListener('click', outside); } }
+        document.addEventListener('click', outside);
+      }, 0);
+    }
+  }
+
+  render();
+}
+
+// ─── Buildings list (localStorage) ───────────────────────────────────────────
+function loadBuildingsFromStorage(){
+  try{ BUILDINGS_LIST=JSON.parse(localStorage.getItem('rental_buildings')||'[]'); }catch{ BUILDINGS_LIST=[]; }
+  if(!BUILDINGS_LIST.length){
+    BUILDINGS_LIST=[...new Set(ROOMS.map(r=>r.building))].filter(Boolean).sort();
+    saveBuildingsToStorage();
+  }
+}
+function saveBuildingsToStorage(){
+  localStorage.setItem('rental_buildings',JSON.stringify(BUILDINGS_LIST));
+}
+function openBuildingsSettings(){
+  function render(){
+    const list=BUILDINGS_LIST.map((b,i)=>
+      `<div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--bdr)">
+        <span style="flex:1;font-size:13px">${b}</span>
+        <button class="btn d xs" onclick="removeBuildingAt(${i})" title="Remove building" style="padding:4px 7px;line-height:0">${TRASH_SVG}</button>
+      </div>`).join('');
+    $('bset-list').innerHTML=list||'<div style="font-size:13px;color:var(--t2);padding:8px 0">No buildings yet.</div>';
+  }
+  showModal(`<div class="modal">
+    <h3>Buildings</h3>
+    <div id="bset-list" style="margin-bottom:12px"></div>
+    <div style="display:flex;gap:8px;margin-bottom:4px">
+      <input id="bset-inp" type="text" placeholder="Building name" style="flex:1;padding:7px 10px;border:1px solid var(--bdr2);border-radius:var(--r);font-size:13px;font-family:inherit;background:var(--bg);color:var(--text)" onkeydown="if(event.key==='Enter')addBuildingFromSettings()"/>
+      <button class="btn p xs" onclick="addBuildingFromSettings()">Add</button>
+    </div>
+    <div class="mbtns"><button class="btn" onclick="closeModal()">Done</button></div>
+  </div>`);
+  render();
+  window._renderBuildingSettings=render;
+}
+function addBuildingFromSettings(){
+  const inp=$('bset-inp'); if(!inp) return;
+  const val=inp.value.trim();
+  if(!val){ toast('Enter a building name.',true); return; }
+  if(BUILDINGS_LIST.includes(val)){ toast('Already exists.',true); return; }
+  BUILDINGS_LIST.push(val); BUILDINGS_LIST.sort();
+  saveBuildingsToStorage(); fillBuildings();
+  inp.value=''; window._renderBuildingSettings?.();
+}
+function removeBuildingAt(i){
+  const b=BUILDINGS_LIST[i];
+  if(ROOMS.some(r=>r.building===b)){ toast(`Can't remove — rooms exist in ${b}.`,true); return; }
+  BUILDINGS_LIST.splice(i,1);
+  saveBuildingsToStorage(); fillBuildings();
+  window._renderBuildingSettings?.();
+}
+
+// ─── Building selects ─────────────────────────────────────────────────────────
+function fillBuildings(){
+  const B=BUILDINGS_LIST.length ? BUILDINGS_LIST : [...new Set(ROOMS.map(r=>r.building))].filter(Boolean).sort();
+  const opts=B.map(b=>`<option value="${b}">${b}</option>`).join('');
+  // Single selects
+  ['pb','nrb'].forEach(id=>{
+    const el=$(id); if(!el) return;
+    const cur=el.value;
+    el.innerHTML=opts;
+    if(B.includes(cur)) el.value=cur;
+  });
+  // Multi-select filter dropdowns
+  buildMultiSelect('fpb-ms', B, _payBldSel,   sel=>{ _payBldSel=sel; loadPay(); });
+  buildMultiSelect('feb-ms', B, _expBldSel,   sel=>{ _expBldSel=sel; loadExp(); });
+  // Multi-select form fields (all = 'both')
+  buildMultiSelect('eb-ms',  B, _expBldForm,  sel=>{ _expBldForm=sel; });
+  buildMultiSelect('sfb-ms', B, _staffBldForm,sel=>{ _staffBldForm=sel; });
+  // Report building checkboxes
+  const rbc=$('rbc');
+  if(rbc) rbc.innerHTML=B.map(b=>`<label><input type="checkbox" value="${b}" checked style="width:auto"> ${b}</label>`).join('');
+  refillRooms();
+}
+
+function refillRooms(){
+  const bld=$('pb').value;
+  $('pr').innerHTML=ROOMS.filter(r=>r.building===bld).map(r=>`<option value="${r.id}">Room ${r.number}</option>`).join('');
+  payPreview();
+}
+
+// ─── Tab navigation ───────────────────────────────────────────────────────────
+const TAB_ACTIONS = {
+  dashboard:()=>loadDash(),
+  payments: ()=>loadPay(),
+  expenses: ()=>{ loadExp(); loadSalRoster(); },
+  rooms:    ()=>renderRooms(),
+  staff:    ()=>renderStaff(),
+  reports:  ()=>{}
+};
+function go(tab){
+  document.querySelectorAll('.tab').forEach(t=>t.classList.remove('on'));
+  document.querySelectorAll('.sec').forEach(s=>s.classList.remove('on'));
+  document.querySelector(`.tab[onclick="go('${tab}')"]`).classList.add('on');
+  $('tab-'+tab).classList.add('on');
+  TAB_ACTIONS[tab]?.();
+}
+
+// ─── Month navigation ─────────────────────────────────────────────────────────
+function setPayMo(mo){
+  $('pm').value=mo;
+  $('pm-lbl').textContent=fmtMo(mo);
+  payPreview();
+}
+function shiftPayMo(d){
+  const cur=$('pm').value||CUR_MO;
+  const[y,m]=cur.split('-').map(Number);
+  const dt=new Date(Date.UTC(y,m-1+d,1));
+  setPayMo(`${dt.getUTCFullYear()}-${String(dt.getUTCMonth()+1).padStart(2,'0')}`);
+}
+function shiftMo(d){
+  const[y,m]=CUR_MO.split('-').map(Number);
+  const dt=new Date(Date.UTC(y,m-1+d,1));
+  CUR_MO=`${dt.getUTCFullYear()}-${String(dt.getUTCMonth()+1).padStart(2,'0')}`;
+  loadDash();
+}
+
+// ─── Payment preview ──────────────────────────────────────────────────────────
+let _previewLateFee=0;
+async function payPreview(){
+  const rid=$('pr').value, mo=$('pm').value;
+  const daysLate=Math.max(0,parseInt($('pdl')?.value)||0);
+  const el=$('pprev');
+  if(!rid||!mo){ el.innerHTML=''; return; }
+  try{
+    const d=await GET(`/rooms/${rid}/preview?month=${mo}&days_late=${daysLate}`);
+    _previewLateFee=d.lateFee||0;
+    if(d.vacant){ el.innerHTML='<span style="color:var(--red)">No active occupancy — unit vacant.</span>'; return; }
+    const na=parseFloat($('pa').value)||0;
+    let msg=d.pro.fullMonth?`Rent: ${fmt(d.pro.rent)}`:
+      `Prorated: ${fmt(d.pro.prorated)} (${d.pro.days}/${d.pro.totalDays} days × ${fmt(d.pro.rent)})`;
+    if(d.carry>0.005)  msg+=` · Credit carried: ${fmt(d.carry)} · Due: ${fmt(d.due)}`;
+    if(d.carry<-0.005) msg+=` · Balance owed: ${fmt(-d.carry)} · Due: ${fmt(d.due)}`;
+    if(d.paid>0.005)   msg+=` · Already paid: ${fmt(d.paid)}`;
+    if(daysLate>0){
+      if(d.lateFee>0){
+        const rateDesc=d.lateFeeType==='fixed'?`${fmt(d.lateFeeValue)}/day`:`${d.lateFeeValue}%/day`;
+        msg+=` · Late fee (${daysLate}d × ${rateDesc}): <strong>${fmt(d.lateFee)}</strong> · Total due: <strong>${fmt(d.due+d.lateFee)}</strong>`;
+      } else {
+        msg+=` · <span style="color:var(--amb)">No late fee configured for this room</span>`;
+      }
+    }
+    if(na>0){
+      const totalDue=d.due+(d.lateFee||0);
+      const diff=(d.paid+na)-totalDue;
+      msg+=diff>0.005 ? ` · Overpaid ${fmt(diff)} → credit` :
+           diff<-0.005? ` · Short ${fmt(-diff)} → carried forward` :
+                        ' · Fully paid ✓';
+    }
+    el.innerHTML=msg;
+  }catch{ el.innerHTML=''; }
+}
+
+// ─── PAYMENTS ─────────────────────────────────────────────────────────────────
+async function recPay(){
+  const rid=$('pr').value, mo=$('pm').value, amt=parseFloat($('pa').value), notes=$('pn').value.trim();
+  const daysLate=Math.max(0,parseInt($('pdl').value)||0);
+  if(!rid||!mo||!(amt>0)){ toast('Fill in room, month and amount.',true); return; }
+  try{
+    await POST('/payments',{room_id:rid,month:mo,amount:amt,notes,days_late:daysLate,late_fee:_previewLateFee});
+    toast('Payment recorded.');
+    $('pa').value=''; $('pn').value=''; $('pdl').value='0'; _previewLateFee=0; payPreview(); loadPay();
+    if($('tab-dashboard').classList.contains('on')) loadDash();
+  }catch(e){ toast(e.message,true); }
+}
+
+async function delPay(id){
+  if(!confirm('Delete this payment?')) return;
+  try{ await DEL(`/payments/${id}`); toast('Deleted.'); loadPay(); loadDash(); }
+  catch(e){ toast(e.message,true); }
+}
+
+async function loadPay(){
+  const mf=$('fpm').value;
+  const qs=new URLSearchParams(); if(mf) qs.set('month',mf);
+  try{
+    let rows=await GET(`/payments?${qs}`);
+    if(_payBldSel) rows=rows.filter(p=>_payBldSel.includes(p.building));
+    if(!rows.length){ $('pay-tbl').innerHTML='<div class="empty">No payments found.</div>'; return; }
+    const t=document.createElement('table');
+    t.innerHTML=`<thead><tr><th>Building</th><th>Room</th><th>Month</th><th>Amount</th><th>Late</th><th>Notes</th><th style="width:62px"></th></tr></thead>`;
+    const tb=document.createElement('tbody');
+    rows.forEach(p=>{
+      const btn=trashBtn(()=>delPay(p.id),'Delete payment');
+      const lateCell=p.days_late>0?`${p.days_late}d${p.late_fee>0?' · '+fmt(p.late_fee):''}`:' — ';
+      const tr=mkEl('tr',{},[`<td>${p.building}</td><td>${p.number}</td><td>${fmtMo(p.month)}</td><td>${fmt(p.amount)}</td><td style="color:var(--t2)">${lateCell}</td><td style="color:var(--t2)">${p.notes||'—'}</td><td></td>`]);
+      tr.lastElementChild.appendChild(btn); tb.appendChild(tr);
+    });
+    t.appendChild(tb); $('pay-tbl').innerHTML=''; $('pay-tbl').appendChild(t);
+  }catch(e){ $('pay-tbl').innerHTML=`<div class="empty">${e.message}</div>`; }
+}
+
+// ─── EXPENSES ─────────────────────────────────────────────────────────────────
+function onCatChange(){
+  const cat=$('ec').value;
+  $('eal').textContent=cat==='miles'?'Miles driven':'Amount ($)';
+  $('ea').placeholder=cat==='miles'?'0':'0.00';
+  $('ea').step=cat==='miles'?'1':'0.01';
+  $('mhint').style.display=cat==='miles'?'block':'none';
+  if(cat==='miles') onMilesInput();
+}
+function onMilesInput(){
+  if($('ec').value!=='miles') return;
+  const mi=parseFloat($('ea').value)||0;
+  $('mhint').textContent=mi>0?`${mi.toLocaleString()} mi × $0.725 = ${fmt(mi*MRATE)} deductible`:'IRS business rate: $0.725/mile';
+}
+
+async function recExp(){
+  const bld=(_expBldForm&&_expBldForm.length===1)?_expBldForm[0]:'both';
+  const cat=$('ec').value, mo=$('em').value, raw=parseFloat($('ea').value), desc=$('ed').value.trim();
+  if(!mo||!(raw>0)){ toast('Fill in month and amount.',true); return; }
+  const body={building:bld,category:cat,month:mo,amount:raw,description:desc};
+  if(cat==='miles'){ body.miles=raw; body.amount=+(raw*MRATE).toFixed(2); }
+  try{
+    await POST('/expenses',body);
+    toast('Expense recorded.');
+    $('ea').value=''; $('ed').value=''; $('mhint').style.display='none';
+    loadExp();
+    if($('tab-dashboard').classList.contains('on')) loadDash();
+  }catch(e){ toast(e.message,true); }
+}
+
+async function delExp(id){
+  if(!confirm('Delete this expense?')) return;
+  try{ await DEL(`/expenses/${id}`); toast('Deleted.'); loadExp(); loadDash(); }
+  catch(e){ toast(e.message,true); }
+}
+
+async function loadExp(){
+  const mf=$('fem').value, cf=$('fec').value;
+  const qs=new URLSearchParams();
+  if(mf) qs.set('month',mf); if(cf) qs.set('category',cf);
+  const CAT_LABELS={advertising:'Advertising',auto_travel:'Auto & Travel',cleaning_maintenance:'Cleaning & Maint.',commissions:'Commissions',insurance:'Insurance',legal_professional:'Legal & Prof.',management_fees:'Management',mortgage_interest:'Mortgage Interest',other_interest:'Other Interest',repairs:'Repairs',supplies:'Supplies',taxes:'Taxes',utilities:'Utilities',depreciation:'Depreciation',other_expenses:'Other Expenses',miles:'Mileage',salaries:'Salaries',refund:'Refund',writeoff:'Write-off',misc:'Misc'};
+  const CAT_BC={salaries:'bb',miles:'ba',refund:'br',writeoff:'bpu'};
+  try{
+    let rows=await GET(`/expenses?${qs}`);
+    if(_expBldSel) rows=rows.filter(e=>_expBldSel.includes(e.building));
+    if(!rows.length){ $('exp-tbl').innerHTML='<div class="empty">No expenses found.</div>'; return; }
+    const t=document.createElement('table');
+    t.innerHTML=`<thead><tr><th>Building</th><th>Category</th><th>Month</th><th>Miles</th><th>Amount</th><th>Description</th><th style="width:62px"></th></tr></thead>`;
+    const tb=document.createElement('tbody');
+    rows.forEach(e=>{
+      const bc=CAT_BC[e.category]||'bgr';
+      const btn=trashBtn(()=>delExp(e.id),'Delete expense');
+      const tr=mkEl('tr',{},[
+        `<td>${e.building==='both'?'General':e.building}</td>
+         <td><span class="badge ${bc}">${CAT_LABELS[e.category]||e.category}</span></td>
+         <td>${fmtMo(e.month)}</td>
+         <td style="color:var(--t2)">${e.miles!=null?e.miles.toLocaleString()+' mi':'—'}</td>
+         <td>${fmt(e.amount)}</td>
+         <td style="color:var(--t2)${e.staff_id?';font-weight:600':''}">${e.description||'—'}</td><td></td>`
+      ]);
+      tr.lastElementChild.appendChild(btn); tb.appendChild(tr);
+    });
+    t.appendChild(tb); $('exp-tbl').innerHTML=''; $('exp-tbl').appendChild(t);
+  }catch(e){ $('exp-tbl').innerHTML=`<div class="empty">${e.message}</div>`; }
+}
+
+// ─── SALARY ROSTER ────────────────────────────────────────────────────────────
+async function loadSalRoster(){
+  const mo=$('sm').value, c=$('sal-roster');
+  if(!mo){ c.innerHTML='<div style="font-size:13px;color:var(--t2)">Select a month.</div>'; return; }
+  if(!STAFF.length){ c.innerHTML='<div class="empty" style="padding:.5rem 0">No staff added yet.</div>'; return; }
+  try{
+    const status=await GET(`/salaries/status?month=${mo}`);
+    const total=STAFF.reduce((s,x)=>s+x.pay,0);
+    const paid=status.filter(s=>s.paid_expense).reduce((s,x)=>s+x.paid_expense.amount,0);
+    const pCount=status.filter(s=>s.paid_expense).length;
+    c.innerHTML='';
+    const summary=mkEl('div',{style:'display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;font-size:13px;color:var(--t2)'},
+      [`<span>${pCount}/${STAFF.length} paid for ${fmtMo(mo)}</span>`,
+       `<span>Paid: <strong style="color:var(--text)">${fmt(paid)}</strong> of <strong style="color:var(--text)">${fmt(total)}</strong></span>`]);
+    c.appendChild(summary);
+    status.forEach((s,i)=>{
+      const last=i===status.length-1;
+      const row=mkEl('div',{class:'sar',style:last?'border-bottom:none':''});
+      const av=mkEl('div',{class:'sav',style:s.paid_expense?'background:var(--grn-bg);color:var(--grn-t)':''},[ini(s.name)]);
+      const info=mkEl('div',{style:'flex:1;min-width:0'},
+        [`<div style="font-size:13px;font-weight:600">${s.name}</div>`,
+         `<div style="font-size:11px;color:var(--t2)">${s.role||'—'} · ${s.building==='both'?'Both':s.building}</div>`]);
+      row.appendChild(av); row.appendChild(info);
+      if(s.paid_expense){
+        row.appendChild(mkEl('span',{class:'badge bg'},[`Paid ${fmt(s.paid_expense.amount)}`]));
+        row.appendChild(trashBtn(()=>undoPay(s.paid_expense.id,mo),'Undo salary payment'));
+      } else {
+        const amtInp=mkEl('input',{type:'number',value:s.pay,min:'0',step:'0.01',style:'width:82px;padding:5px 7px;border:1px solid var(--bdr2);border-radius:var(--r);font-size:13px;font-family:inherit;background:var(--bg);color:var(--text)'});
+        amtInp.id=`sai-${s.id}`;
+        const wrap=mkEl('div',{style:'display:flex;align-items:center;gap:5px'},
+          [`<span style="font-size:12px;color:var(--t2)">$</span>`,amtInp]);
+        row.appendChild(wrap);
+        row.appendChild(mkEl('button',{class:'btn p xs',onclick:()=>payOne(s.id,mo,`sai-${s.id}`)},['Pay']));
+      }
+      c.appendChild(row);
+    });
+  }catch(e){ c.innerHTML=`<div class="empty">${e.message}</div>`; }
+}
+
+async function payOne(staffId,mo,inputId){
+  const amt=parseFloat($(inputId)?.value);
+  try{
+    await POST('/salaries/pay-one',{staff_id:staffId,month:mo,amount:amt>0?amt:undefined});
+    toast('Paid.'); loadSalRoster(); loadExp();
+    if($('tab-dashboard').classList.contains('on')) loadDash();
+  }catch(e){ toast(e.message,true); }
+}
+
+async function undoPay(expId,mo){
+  if(!confirm('Remove this salary payment?')) return;
+  try{ await DEL(`/expenses/${expId}`); toast('Removed.'); loadSalRoster(); loadExp(); loadDash(); }
+  catch(e){ toast(e.message,true); }
+}
+
+async function payAllStaff(){
+  const mo=$('sm').value;
+  if(!mo){ toast('Select a month.',true); return; }
+  try{
+    const created=await POST('/salaries/pay-all',{month:mo});
+    toast(`Paid ${created.length} staff member${created.length!==1?'s':''}.`);
+    loadSalRoster(); loadExp();
+    if($('tab-dashboard').classList.contains('on')) loadDash();
+  }catch(e){ toast(e.message,true); }
+}
+
+// ─── ROOMS ────────────────────────────────────────────────────────────────────
+async function loadRooms(){ ROOMS=await GET('/rooms'); fillBuildings(); }
+
+async function addRoom(){
+  const bld=$('nrb').value.trim(), num=$('nrn').value.trim(), rent=parseFloat($('nrr').value);
+  const lft=$('nrlft').value, lfv=parseFloat($('nrlfv').value);
+  if(!bld||!num||!(rent>0)){ toast('Fill in all fields.',true); return; }
+  if(lft&&!(lfv>0)){ toast('Enter a late fee value.',true); return; }
+  try{
+    await POST('/rooms',{building:bld,number:num,base_rent:rent,
+      late_fee_type:lft||null, late_fee_value:lft?lfv:null});
+    toast('Room added.'); ['nrn','nrr','nrlfv'].forEach(id=>$(id).value='');
+    $('nrlft').value=''; $('nrlfv-wrap').style.display='none';
+    await loadRooms(); renderRooms();
+  }catch(e){ toast(e.message,true); }
+}
+
+async function updateBaseRent(id,inputId){
+  const val=parseFloat($(inputId).value);
+  if(!(val>0)){ toast('Enter a valid amount.',true); return; }
+  try{ await PATCH(`/rooms/${id}`,{base_rent:val}); toast('Updated.'); await loadRooms(); renderRooms(); }
+  catch(e){ toast(e.message,true); }
+}
+
+async function updateLateFee(roomId,typeId,valId){
+  const type=$(typeId).value;
+  const val=type?parseFloat($(valId).value):null;
+  if(type&&!(val>0)){ toast('Enter a valid late fee value.',true); return; }
+  try{
+    await PATCH(`/rooms/${roomId}`,{late_fee_type:type||null,late_fee_value:val});
+    toast('Late fee updated.'); await loadRooms(); renderRooms();
+  }catch(e){ toast(e.message,true); }
+}
+
+async function deleteRoom(id){
+  if(!confirm('Delete this room and all its data?')) return;
+  try{ await DEL(`/rooms/${id}`); toast('Room deleted.'); await loadRooms(); renderRooms(); loadDash(); }
+  catch(e){ toast(e.message,true); }
+}
+
+function openNewPeriodModal(roomId){
+  const rm=ROOMS.find(r=>r.id===roomId);
+  showModal(`<div class="modal">
+    <h3>New occupancy — ${rm?.building} ${rm?.number}</h3>
+    <p>Rent is prorated from move-in through month end. Move-out day counts as occupied.</p>
+    <label>Move-in date</label>
+    <input type="date" id="np-s" value="${new Date().toISOString().slice(0,10)}"/>
+    <label>Monthly rent ($) — defaults to base rent</label>
+    <input type="number" id="np-r" value="${rm?.base_rent||''}" min="0" step="0.01"/>
+    <div class="mbtns">
+      <button class="btn p" onclick="submitPeriod('${roomId}')">Add occupancy</button>
+      <button class="btn" onclick="closeModal()">Cancel</button>
+    </div>
+  </div>`);
+}
+
+async function submitPeriod(roomId){
+  const start=$('np-s')?.value, rent=parseFloat($('np-r')?.value);
+  if(!start||!(rent>0)){ toast('Fill in all fields.',true); return; }
+  try{
+    await POST(`/rooms/${roomId}/periods`,{rent,start_date:start});
+    toast('Occupancy added.'); closeModal(); await loadRooms(); renderRooms(); loadDash();
+  }catch(e){ toast(e.message,true); }
+}
+
+function openMoveOutModal(periodId,roomId){
+  const rm=ROOMS.find(r=>r.id===roomId);
+  showModal(`<div class="modal">
+    <h3>Move out — ${rm?.building} ${rm?.number}</h3>
+    <p>Rent is prorated through and including this date. Any outstanding balance will be flagged.</p>
+    <label>Move-out date</label>
+    <input type="date" id="mo-d" value="${new Date().toISOString().slice(0,10)}"/>
+    <div class="mbtns">
+      <button class="btn p" onclick="submitMoveOut('${periodId}','${roomId}')">Confirm</button>
+      <button class="btn" onclick="closeModal()">Cancel</button>
+    </div>
+  </div>`);
+}
+
+async function submitMoveOut(periodId,roomId){
+  const end=$('mo-d').value;
+  if(!end){ toast('Pick a date.',true); return; }
+  const isFuture=end>new Date().toISOString().slice(0,10);
+  try{
+    const{balance}=await PATCH(`/periods/${periodId}/moveout`,{end_date:end});
+    closeModal(); await loadRooms(); renderRooms(); loadDash();
+    if(isFuture){
+      toast(`Move-out set for ${end}. Record payments as normal until then.`);
+    } else if(Math.abs(balance)>0.005){
+      toast('Move-out recorded.');
+      setTimeout(()=>openAdjModal(roomId,periodId,balance),200);
+    } else {
+      toast('Move-out recorded.');
+    }
+  }catch(e){ toast(e.message,true); }
+}
+
+function openEditPeriodModal(p, roomId){
+  const rm=ROOMS.find(r=>r.id===roomId);
+  showModal(`<div class="modal">
+    <h3>Edit occupancy — ${rm?.building} ${rm?.number}</h3>
+    <label>Move-in date</label>
+    <input type="date" id="ep-s" value="${p.start_date}"/>
+    <label>Move-out date${p.end_date?'':' (leave blank if still occupied)'}</label>
+    <input type="date" id="ep-e" value="${p.end_date||''}"/>
+    <label>Monthly rent ($)</label>
+    <input type="number" id="ep-r" value="${p.rent}" min="0.01" step="0.01"/>
+    <div class="mbtns">
+      <button class="btn p" onclick="submitEditPeriod('${p.id}','${roomId}')">Save changes</button>
+      <button class="btn" onclick="closeModal()">Cancel</button>
+    </div>
+  </div>`);
+}
+
+async function submitEditPeriod(periodId, roomId){
+  const start=$('ep-s').value, end=$('ep-e').value||null, rent=parseFloat($('ep-r').value);
+  if(!start||!(rent>0)){ toast('Move-in date and rent are required.',true); return; }
+  try{
+    await PATCH(`/periods/${periodId}`,{start_date:start, end_date:end, rent});
+    toast('Occupancy updated.'); closeModal(); await loadRooms(); renderRooms(); loadDash();
+  }catch(e){ toast(e.message,true); }
+}
+
+async function deletePeriod(id){
+  if(!confirm('Delete this occupancy period?')) return;
+  try{ await DEL(`/periods/${id}`); toast('Deleted.'); await loadRooms(); renderRooms(); loadDash(); }
+  catch(e){ toast(e.message,true); }
+}
+
+function openAdjModal(roomId,periodId,balance){
+  const rm=ROOMS.find(r=>r.id===roomId);
+  const isNeg=balance<-0.005, isPos=balance>0.005, abs=Math.abs(balance).toFixed(2);
+  const opts=isNeg
+    ?`<option value="forgiven">Forgive (partial or full)</option><option value="writeoff">Write off as bad debt</option><option value="keep">Leave open in books</option>`
+    :isPos
+    ?`<option value="refund">Issue refund</option><option value="keep">Leave credit open</option>`
+    :`<option value="forgiven">Forgive balance</option><option value="charge">Add charge</option><option value="writeoff">Write off</option>`;
+  showModal(`<div class="modal">
+    <h3>${isNeg?'Balance owed: $'+abs:isPos?'Credit: $'+abs:'Adjustment'} — ${rm?.building} ${rm?.number}</h3>
+    <p>${isNeg?'How do you want to handle this balance?':isPos?'This tenant has a credit.':'Record a manual adjustment.'}</p>
+    <label>Type</label>
+    <select id="adj-t" onchange="$('adj-aw').style.display=this.value==='keep'?'none':'block'">${opts}</select>
+    <div id="adj-aw">
+      <label>Amount ($)</label>
+      <input type="number" id="adj-a" value="${abs}" min="0.01" step="0.01"/>
+    </div>
+    <label>Note (optional)</label>
+    <textarea id="adj-n" placeholder="e.g. Tenant hardship, agreed settlement…"></textarea>
+    <div class="mbtns">
+      <button class="btn p" onclick="submitAdj('${roomId}','${periodId}')">Apply</button>
+      <button class="btn" onclick="closeModal()">Cancel</button>
+    </div>
+  </div>`);
+}
+
+async function submitAdj(roomId,periodId){
+  const type=$('adj-t').value;
+  if(type==='keep'){ closeModal(); return; }
+  const amount=parseFloat($('adj-a').value), note=$('adj-n').value.trim();
+  if(!(amount>0)){ toast('Enter a valid amount.',true); return; }
+  try{
+    await POST('/adjustments',{room_id:roomId,period_id:periodId,type,amount,note,date:new Date().toISOString().slice(0,10)});
+    toast('Adjustment recorded.'); closeModal(); loadDash();
+    if($('tab-expenses').classList.contains('on')) loadExp();
+  }catch(e){ toast(e.message,true); }
+}
+
+function renderRooms(){
+  const c=$('rooms-list');
+  if(!ROOMS.length){ c.innerHTML='<div class="card"><div class="empty">No rooms yet.</div></div>'; return; }
+  c.innerHTML='';
+  const byBld={};
+  ROOMS.forEach(r=>{ (byBld[r.building]||(byBld[r.building]=[])).push(r); });
+  Object.entries(byBld).forEach(([bld,bRooms])=>{
+    const card=mkEl('div',{class:'card'},[`<div class="ct">${bld}</div>`]);
+    bRooms.forEach(room=>{
+      const periods=(room.periods||[]).sort((a,b)=>a.start_date.localeCompare(b.start_date));
+      const active=periods.find(p=>!p.end_date);
+      const row=mkEl('div',{class:'rrow'});
+      const dot=mkEl('div',{class:`rdot ${active?'occ':'vac'}`});
+      const info=mkEl('div',{class:'rinfo'});
+      const lfDesc=room.late_fee_type?(room.late_fee_type==='fixed'?` · Late fee: ${fmt(room.late_fee_value)}/day`:` · Late fee: ${room.late_fee_value}%/day`):'';
+      info.innerHTML=`<div class="rtit">Room ${room.number} <span class="badge ${active?'bg':'bgr'}">${active?'Occupied':'Vacant'}</span></div>
+        <div class="rsub">Base rent: ${fmt(room.base_rent)}${active?` · Current rent: ${fmt(active.rent)} · Since ${active.start_date}`:''}${lfDesc}</div>`;
+      // Inline rent update
+      const rentRow=mkEl('div',{style:'display:flex;gap:6px;align-items:center;margin-top:6px'});
+      const rentInp=mkEl('input',{type:'number',value:room.base_rent,min:'0',step:'0.01',id:`br-${room.id}`,style:'width:95px;padding:5px 7px;border:1px solid var(--bdr2);border-radius:var(--r);font-size:12px;font-family:inherit;background:var(--bg);color:var(--text)'});
+      const rentSave=mkEl('button',{class:'btn xs',onclick:()=>updateBaseRent(room.id,`br-${room.id}`)},['Update base rent']);
+      rentRow.appendChild(rentInp); rentRow.appendChild(rentSave); info.appendChild(rentRow);
+      // Inline late fee editor
+      const lfRow=mkEl('div',{style:'display:flex;gap:6px;align-items:center;margin-top:6px;flex-wrap:wrap'});
+      const lfTypeId=`lft-${room.id}`, lfValId=`lfv-${room.id}`;
+      const lfSel=mkEl('select',{id:lfTypeId,style:'padding:5px 7px;border:1px solid var(--bdr2);border-radius:var(--r);font-size:12px;font-family:inherit;background:var(--bg);color:var(--text)'});
+      [['','No late fee'],['fixed','Fixed $/day'],['percent','% of rent/day']].forEach(([v,l])=>{
+        const o=document.createElement('option'); o.value=v; o.textContent=l;
+        if(v===(room.late_fee_type||'')) o.selected=true; lfSel.appendChild(o);
+      });
+      const lfInp=mkEl('input',{type:'number',id:lfValId,value:room.late_fee_value??'',min:'0',step:'0.01',placeholder:'0.00',
+        style:`width:80px;padding:5px 7px;border:1px solid var(--bdr2);border-radius:var(--r);font-size:12px;font-family:inherit;background:var(--bg);color:var(--text);display:${room.late_fee_type?'block':'none'}`});
+      lfSel.addEventListener('change',()=>{ lfInp.style.display=lfSel.value?'block':'none'; });
+      const lfSave=mkEl('button',{class:'btn xs',onclick:()=>updateLateFee(room.id,lfTypeId,lfValId)},['Update late fee']);
+      lfRow.appendChild(lfSel); lfRow.appendChild(lfInp); lfRow.appendChild(lfSave);
+      info.appendChild(lfRow);
+      // Period list
+      if(periods.length){
+        const pl=mkEl('div',{style:'margin-top:8px'});
+        periods.forEach(p=>{
+          const pr=mkEl('div',{class:'prow'});
+          const lbl=p.end_date?`${p.start_date} → ${p.end_date}`:`${p.start_date} → present`;
+          pr.innerHTML=`<span style="font-size:12px;color:var(--t2);flex:1">${lbl} · ${fmt(p.rent)}/mo</span>`;
+          pr.appendChild(mkEl('button',{class:'btn xs',onclick:()=>openEditPeriodModal(p,room.id)},['Edit']));
+          if(!p.end_date){
+            pr.appendChild(mkEl('button',{class:'btn w xs',onclick:()=>openMoveOutModal(p.id,room.id)},['Move out']));
+          } else {
+            pr.appendChild(trashBtn(()=>deletePeriod(p.id),'Delete occupancy period'));
+          }
+          pr.appendChild(mkEl('button',{class:'btn xs',onclick:async()=>{
+            try{ const{balance}=await GET(`/rooms/${room.id}/balance?month=${CUR_MO}`); openAdjModal(room.id,p.id,balance); }
+            catch(e){ toast(e.message,true); }
+          }},['Adjust balance']));
+          pl.appendChild(pr);
+        });
+        info.appendChild(pl);
+      }
+      const btns=mkEl('div',{style:'display:flex;flex-direction:column;gap:5px;flex-shrink:0'});
+      btns.appendChild(mkEl('button',{class:'btn p xs',onclick:()=>openNewPeriodModal(room.id)},['+ Occupancy']));
+      btns.appendChild(trashBtn(()=>deleteRoom(room.id),'Delete room'));
+      row.appendChild(dot); row.appendChild(info); row.appendChild(btns);
+      card.appendChild(row);
+    });
+    c.appendChild(card);
+  });
+}
+
+// Fix the typo in submitPeriod (missing quote)
+// Corrected version is below — overwrite the broken one
+window.submitPeriod=async function(roomId){
+  const start=$('np-s').value, rent=parseFloat($('np-r').value);
+  if(!start||!(rent>0)){ toast('Fill in all fields.',true); return; }
+  try{
+    await POST(`/rooms/${roomId}/periods`,{rent,start_date:start});
+    toast('Occupancy added.'); closeModal(); await loadRooms(); renderRooms(); loadDash();
+  }catch(e){ toast(e.message,true); }
+};
+
+// ─── STAFF ────────────────────────────────────────────────────────────────────
+async function loadStaff(){ STAFF=await GET('/staff'); fillBuildings(); }
+
+async function addStaff(){
+  const name=$('sfn').value.trim(), role=$('sfr').value.trim();
+  const bld=(_staffBldForm&&_staffBldForm.length===1)?_staffBldForm[0]:'both';
+  const pay=parseFloat($('sfp').value);
+  if(!name||!(pay>0)){ toast('Name and pay required.',true); return; }
+  try{
+    await POST('/staff',{name,role,building:bld,pay});
+    toast('Added.'); ['sfn','sfr','sfp'].forEach(id=>$(id).value='');
+    await loadStaff(); renderStaff();
+  }catch(e){ toast(e.message,true); }
+}
+
+async function updateStaffPay(id,inputId){
+  const val=parseFloat($(inputId).value);
+  if(!(val>0)){ toast('Enter a valid amount.',true); return; }
+  try{ await PATCH(`/staff/${id}`,{pay:val}); toast('Updated.'); await loadStaff(); renderStaff(); }
+  catch(e){ toast(e.message,true); }
+}
+
+async function deleteStaff(id){
+  if(!confirm('Remove this staff member?')) return;
+  try{ await DEL(`/staff/${id}`); toast('Removed.'); await loadStaff(); renderStaff(); loadSalRoster(); }
+  catch(e){ toast(e.message,true); }
+}
+
+function renderStaff(){
+  const c=$('staff-list');
+  if(!STAFF.length){ c.innerHTML='<div class="empty">No staff yet.</div>'; return; }
+  c.innerHTML='';
+  STAFF.forEach(s=>{
+    const row=mkEl('div',{class:'sline'});
+    const av=mkEl('div',{class:'sav'},[ini(s.name)]);
+    const info=mkEl('div',{style:'flex:1'},
+      [`<div style="font-size:13px;font-weight:600">${s.name}</div>`,
+       `<div style="font-size:11px;color:var(--t2)">${s.role||'—'} · ${s.building==='both'?'Both':s.building}</div>`]);
+    const pw=mkEl('div',{style:'display:flex;align-items:center;gap:7px'});
+    const btnId='spb-'+s.id;
+    const inp=mkEl('input',{type:'number',value:s.pay,min:'0',step:'0.01',id:'sp-'+s.id,
+      style:'width:88px;padding:6px 8px;border:1px solid var(--bdr2);border-radius:var(--r);font-size:13px;font-family:inherit;background:var(--bg);color:var(--text)'});
+    inp.addEventListener('input',()=>{
+      const btn=$(btnId);
+      const changed=parseFloat(inp.value)!==s.pay;
+      btn.disabled=!changed;
+      btn.style.opacity=changed?'':'0.4';
+      btn.style.cursor=changed?'':'default';
+    });
+    pw.appendChild(inp);
+    const updateBtn=mkEl('button',{class:'btn xs',id:btnId,onclick:()=>updateStaffPay(s.id,'sp-'+s.id)},['Update pay']);
+    updateBtn.disabled=true; updateBtn.style.opacity='0.4'; updateBtn.style.cursor='default';
+    pw.appendChild(updateBtn);
+    pw.appendChild(trashBtn(()=>deleteStaff(s.id),'Remove staff member'));
+    row.appendChild(av); row.appendChild(info); row.appendChild(pw);
+    c.appendChild(row);
+  });
+  const total=STAFF.reduce((s,x)=>s+x.pay,0);
+  const sum=mkEl('div',{style:'margin-top:10px;padding-top:10px;border-top:1px solid var(--bdr);font-size:12px;color:var(--t2);display:flex;justify-content:space-between'},
+    [`<span>${STAFF.length} staff</span>`,`<span>Monthly payroll: <strong style="color:var(--text)">${fmt(total)}</strong></span>`]);
+  c.appendChild(sum);
+}
+
+// ─── DASHBOARD ────────────────────────────────────────────────────────────────
+async function loadDash(){
+  $('dml').textContent=fmtMo(CUR_MO);
+  $('dlbl').textContent=fmtMo(CUR_MO);
+  try{
+    const d=await GET(`/dashboard/${CUR_MO}`);
+    $('dmet').innerHTML=`
+      <div class="mc"><div class="ml">Income collected</div><div class="mv" style="color:var(--grn)">${fmt(d.totalIncome)}</div></div>
+      <div class="mc"><div class="ml">Expected rent</div><div class="mv">${fmt(d.expectedRent)}</div></div>
+      <div class="mc"><div class="ml">Total expenses</div><div class="mv" style="color:var(--red)">${fmt(d.totalExpenses)}</div></div>
+      <div class="mc"><div class="ml">Net profit</div><div class="mv" style="color:${d.net>=0?'var(--grn)':'var(--red)'}">${fmt(d.net)}</div></div>`;
+
+    const STATUS_BADGE={paid:'bg',overpaid:'bb',short:'ba',unpaid:'br'};
+    const STATUS_LABEL={paid:'Paid',overpaid:'Overpaid',short:'Short',unpaid:'Unpaid'};
+    const rows=d.rooms.map(rm=>{
+      if(rm.status==='vacant'){
+        const adjBtn=rm.arrears>0
+          ?`<button class="btn d xs" onclick="openAdjModal('${rm.room_id}','${rm.last_period_id||''}',${-rm.arrears})">Handle</button>`
+          :'—';
+        return`<tr><td>${rm.building}</td><td>${rm.number}</td><td><span class="badge bgr">Vacant</span></td><td>—</td><td>—</td><td>—</td><td>${rm.arrears>0?`<span class="badge br">Arrears ${fmt(rm.arrears)}</span>`:'—'}</td><td>${adjBtn}</td></tr>`;
+      }
+      const bc=STATUS_BADGE[rm.status]||'bgr';
+      const sl=STATUS_LABEL[rm.status]||rm.status;
+      const diff=rm.diff;
+      const label=rm.status==='overpaid'?`Overpaid ${fmt(diff)}`:rm.status==='short'?`Short ${fmt(-diff)}`:sl;
+      const carry=rm.carry>0.005?`<span class="badge bg">+${fmt(rm.carry)}</span>`:rm.carry<-0.005?`<span class="badge br">${fmt(rm.carry)}</span>`:'—';
+      const pNote=rm.pro&&!rm.pro.fullMonth?`<br><small style="color:var(--t2)">${rm.pro.days}/${rm.pro.totalDays} days</small>`:'';
+      const action=rm.status==='short'?`<button class="btn w xs" onclick="openAdjModal('${rm.room_id}','${rm.period?.id||''}',${rm.diff})">Handle</button>`:'—';
+      return`<tr><td>${rm.building}</td><td>${rm.number}</td><td><span class="badge bg">Occupied</span></td><td>${rm.pro?fmt(rm.pro.prorated):'—'}${pNote}</td><td>${carry}</td><td>${fmt(rm.paid)}</td><td><span class="badge ${bc}">${label}</span></td><td>${action}</td></tr>`;
+    });
+    $('drooms').innerHTML=d.rooms.length
+      ?`<table><thead><tr><th>Building</th><th>Room</th><th>Status</th><th>Due</th><th>Carry-in</th><th>Paid</th><th>Result</th><th style="width:88px">Action</th></tr></thead><tbody>${rows.join('')}</tbody></table>`
+      :'<div class="empty">No rooms configured.</div>';
+
+    // Recent panels
+    const rp=await GET(`/payments?month=${CUR_MO}`);
+    $('drpay').innerHTML=rp.slice(0,5).length
+      ?`<table><thead><tr><th>Room</th><th>Month</th><th style="text-align:right">Amount</th></tr></thead><tbody>${rp.slice(0,5).map(p=>`<tr><td>${p.building} ${p.number}</td><td>${fmtMo(p.month)}</td><td style="text-align:right">${fmt(p.amount)}</td></tr>`).join('')}</tbody></table>`
+      :'<div class="empty">No payments this month</div>';
+
+    const re=await GET(`/expenses?month=${CUR_MO}`);
+    const CL={advertising:'Advertising',auto_travel:'Auto & Travel',cleaning_maintenance:'Cleaning & Maint.',commissions:'Commissions',insurance:'Insurance',legal_professional:'Legal & Prof.',management_fees:'Management',mortgage_interest:'Mortgage Interest',other_interest:'Other Interest',repairs:'Repairs',supplies:'Supplies',taxes:'Taxes',utilities:'Utilities',depreciation:'Depreciation',other_expenses:'Other Expenses',miles:'Mileage',salaries:'Salaries',refund:'Refund',writeoff:'Write-off',misc:'Misc'};
+    $('drexp').innerHTML=re.slice(0,5).length
+      ?`<table><thead><tr><th>Category</th><th>Month</th><th style="text-align:right">Amount</th></tr></thead><tbody>${re.slice(0,5).map(e=>`<tr><td>${CL[e.category]||e.category}</td><td>${fmtMo(e.month)}</td><td style="text-align:right">${fmt(e.amount)}</td></tr>`).join('')}</tbody></table>`
+      :'<div class="empty">No expenses this month</div>';
+  }catch(e){
+    $('drooms').innerHTML=`<div class="empty">${e.message}</div>`;
+  }
+}
+
+// ─── BACKUP ───────────────────────────────────────────────────────────────────
+async function doBackup(){
+  try{ await POST('/backup'); toast('Backup saved to /backups folder.'); }
+  catch(e){ toast(e.message,true); }
+}
+
+// ─── REPORTS ─────────────────────────────────────────────────────────────────
+async function genReport(){
+  const from=$('rf').value, to=$('rt').value, group=$('rg').value;
+  const blds=[...document.querySelectorAll('#rbc input:checked')].map(c=>c.value);
+  if(!from||!to){ toast('Select a date range.',true); return; }
+  if(from>to){ toast('From must be before To.',true); return; }
+  if(!blds.length){ toast('Select at least one building.',true); return; }
+  $('rep-out').innerHTML='<div class="empty"><span class="spin"></span> Building report…</div>';
+  try{
+    const qs=new URLSearchParams({from,to,buildings:blds.join(',')});
+    const d=await GET(`/report?${qs}`);
+    const out=group==='month'?d.months.map(m=>buildMonthReport(d,m)).join(''):buildReport(d);
+    $('rep-out').innerHTML=out;
+  }catch(e){ $('rep-out').innerHTML=`<div class="empty">${e.message}</div>`; }
+}
+
+function buildMonthReport(d,mo){
+  const payments=d.payments.filter(p=>p.month===mo);
+  const expenses=d.expenses.filter(e=>e.month===mo);
+  const adjustments=d.adjustments.filter(a=>a.date.startsWith(mo));
+  const ti=payments.reduce((s,p)=>s+p.amount,0);
+  const te=expenses.reduce((s,e)=>s+e.amount,0);
+  // Expected rent for this month from roomSummary is not month-broken-down; compute from raw
+  const sub={...d,payments,expenses,adjustments,
+    totalIncome:ti,totalExpenses:te,net:ti-te,
+    expectedRent:d.roomSummary.reduce((s,r)=>s+(r.totalDue/d.months.length),0)};
+  return `<div style="margin-bottom:2rem">${buildReport(sub,fmtMo(mo)+' — Report')}</div>`;
+}
+
+function buildReport(d,titleOverride){
+  const title=titleOverride||(d.from===d.to?fmtMo(d.from):`${fmtMo(d.from)} – ${fmtMo(d.to)}`)+' — Report';
+  const blds=Array.isArray(d.buildings)?d.buildings.join(', '):'all';
+  const CAT={advertising:'Advertising',auto_travel:'Auto and Travel',cleaning_maintenance:'Cleaning and Maintenance',commissions:'Commissions',insurance:'Insurance',legal_professional:'Legal and Professional Fees',management_fees:'Management Fees',mortgage_interest:'Mortgage Interest Paid to Banks',other_interest:'Other Interest',repairs:'Repairs',supplies:'Supplies',taxes:'Taxes',utilities:'Utilities',depreciation:'Depreciation / Depletion',other_expenses:'Other Expenses',miles:'Mileage',salaries:'Salaries',refund:'Refunds',writeoff:'Write-offs',misc:'Miscellaneous'};
+  const forgivenTotal=(d.adjustments||[]).filter(a=>a.type==='forgiven').reduce((s,a)=>s+a.amount,0);
+  const rmRows=(d.roomSummary||[]).map(r=>{
+    return`<tr><td>${r.building}</td><td>${r.number}</td>
+      <td style="text-align:right">${fmt(r.totalDue)}</td>
+      <td style="text-align:right">${fmt(r.totalPaid)}${r.totalForgiven>0.005?`<br><small style="color:var(--amb)">(+${fmt(r.totalForgiven)} forgiven)</small>`:''}</td>
+      <td style="text-align:right;color:${r.diff>=0?'var(--grn)':'var(--red)'}">
+        ${r.diff>=0?'+':''}${fmt(r.diff)}</td></tr>`;
+  }).join('');
+  const totalDue=(d.roomSummary||[]).reduce((s,r)=>s+r.totalDue,0);
+  const incDiff=d.totalIncome-totalDue;
+  const _expGroups={};
+  (d.expenses||[]).forEach(e=>{if(!_expGroups[e.category])_expGroups[e.category]=[];_expGroups[e.category].push(e);});
+  const expDetailRows=Object.entries(_expGroups).map(([cat,items])=>{
+    const catTotal=items.reduce((s,e)=>s+e.amount,0);
+    const itemRows=items.map((e,i)=>`<tr><td>${i===0?CAT[cat]||cat:''}</td><td style="color:var(--t2)">${e.description||'—'}</td><td style="text-align:right">${fmt(e.amount)}</td></tr>`).join('');
+    const subtotal=items.length>1?`<tr><td></td><td style="font-size:12px;color:var(--t2)">Category total</td><td style="text-align:right;font-weight:600;border-top:1px solid var(--bdr)">${fmt(catTotal)}</td></tr>`:'';
+    return itemRows+subtotal;
+  }).join('');
+  const adjRows=(d.adjustments||[]).map(a=>
+    `<tr><td>${a.date}</td><td>${a.building} ${a.number}</td><td>${a.type==='forgiven'?'Forgiven (offsets income)':a.type==='writeoff'?'Written off (bad debt)':a.type==='charge'?'Extra charge':'Refund'}</td><td style="text-align:right">${fmt(a.amount)}</td><td>${a.note||'—'}</td></tr>`
+  ).join('');
+  const salRows=(d.salaries||[]).map(e=>`<tr><td>${fmtMo(e.month)}</td><td>${e.building==='both'?'General':e.building}</td><td>${e.description}</td><td style="text-align:right">${fmt(e.amount)}</td></tr>`).join('');
+  const salTotal=(d.salaries||[]).reduce((s,e)=>s+e.amount,0);
+  const payRows=(d.payments||[]).map(p=>`<tr><td>${fmtMo(p.month)}</td><td>${p.building}</td><td>${p.number}</td><td style="text-align:right">${fmt(p.amount)}</td><td>${p.notes||'—'}</td></tr>`).join('');
+  const th=(cols,right=[])=>cols.map(c=>`<th style="text-align:${right.includes(c)?'right':'left'}">${c}</th>`).join('');
+  const trow=`<tr class="trow">`;
+
+  return`<div class="rcard">
+  <div class="rhead"><div class="rtit">${title}</div><div class="rsub">Generated ${new Date().toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'})} · Buildings: ${blds}</div></div>
+  <div class="rsgrid">
+    ${[['Total income',fmt(d.totalIncome),'var(--grn)'],['Expected rent',fmt(d.expectedRent),''],['Total expenses',fmt(d.totalExpenses),'var(--red)'],['Net profit',fmt(d.net),d.net>=0?'var(--grn)':'var(--red)'],...(d.totalMiles>0?[['Miles driven',d.totalMiles.toLocaleString()+' mi','']]:[])]
+    .map(([l,v,c])=>`<div class="rsb"><div class="rl">${l}</div><div class="rv" style="${c?'color:'+c:''}">${v}</div></div>`).join('')}
+  </div>
+  ${forgivenTotal>0.005?`<p style="font-size:12px;color:var(--amb);margin:-8px 0 14px">Forgiven this period: ${fmt(forgivenTotal)} — offsets income shortfall, not counted as expense.</p>`:''}
+  ${rmRows?`<div class="rsec"><div class="rsl">Room summary</div><table class="rt"><thead><tr>${th(['Building','Room','Expected','Collected / forgiven','Difference'],['Expected','Collected / forgiven','Difference'])}</tr></thead><tbody>${rmRows}</tbody>${trow}<td colspan="2">Total</td><td style="text-align:right">${fmt(totalDue)}</td><td style="text-align:right">${fmt(d.totalIncome)}${forgivenTotal>0.005?`<br><small style="color:var(--amb)">+${fmt(forgivenTotal)} forgiven</small>`:''}</td><td style="text-align:right;color:${incDiff>=0?'var(--grn)':'var(--red)'}">${incDiff>=0?'+':''}${fmt(incDiff)}</td></tr></tfoot></table></div>`:''}
+  ${expDetailRows?`<div class="rsec"><div class="rsl">Expense breakdown</div><table class="rt"><thead><tr>${th(['Category','Description','Amount'],['Amount'])}</tr></thead><tbody>${expDetailRows}</tbody>${trow}<td colspan="2">Total expenses</td><td style="text-align:right">${fmt(d.totalExpenses)}</td></tr></tfoot></table></div>`:''}
+  ${adjRows?`<div class="rsec"><div class="rsl">Adjustment ledger</div><p style="font-size:12px;color:var(--t2);margin-bottom:8px">Forgiven amounts offset income; write-offs are separate expense entries in the breakdown above.</p><table class="rt"><thead><tr>${th(['Date','Room','Type','Amount','Note'],['Amount'])}</tr></thead><tbody>${adjRows}</tbody></table></div>`:''}
+  ${salRows?`<div class="rsec"><div class="rsl">Salary detail</div><table class="rt"><thead><tr>${th(['Month','Building','Employee','Amount'],['Amount'])}</tr></thead><tbody>${salRows}</tbody>${trow}<td colspan="3">Total salaries</td><td style="text-align:right">${fmt(salTotal)}</td></tr></tfoot></table></div>`:''}
+  ${payRows?`<div class="rsec"><div class="rsl">Payment detail</div><table class="rt"><thead><tr>${th(['Month','Building','Room','Amount','Notes'],['Amount'])}</tr></thead><tbody>${payRows}</tbody>${trow}<td colspan="3">Total income</td><td style="text-align:right">${fmt(d.totalIncome)}</td><td></td></tr></tfoot></table></div>`:''}
+  </div>`;
+}
+
+// ─── Init ─────────────────────────────────────────────────────────────────────
+async function init(){
+  const now=new Date();
+  CUR_MO=`${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
+  setPayMo(CUR_MO); $('em').value=CUR_MO; $('sm').value=CUR_MO;
+  $('fpm').value=''; $('rf').value=`${now.getFullYear()}-01`; $('rt').value=CUR_MO;
+
+  await checkConn();
+  setInterval(checkConn,30000);
+
+  try{
+    await Promise.all([loadRooms(),loadStaff()]);
+    loadBuildingsFromStorage();
+    await loadDash();
+  }catch(e){ toast('Could not connect to server. Is it running?',true); }
+}
+
+init();
+</script>
+</body>
+</html>
