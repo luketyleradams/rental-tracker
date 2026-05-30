@@ -28,7 +28,8 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
 h1{font-size:18px;font-weight:600;display:flex;align-items:center;gap:9px}
 h1 .dot{width:9px;height:9px;border-radius:50%;background:var(--grn);display:inline-block}
 .status{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--t2)}
-.sdot{width:7px;height:7px;border-radius:50%;background:var(--grn);flex-shrink:0}
+.sdot{width:7px;height:7px;border-radius:50%;background:var(--t3);flex-shrink:0;transition:background .3s}
+.sdot.ok{background:var(--grn)}
 .sdot.err{background:var(--red)}
 
 /* tabs */
@@ -508,8 +509,8 @@ const DEL  = p     => api('DELETE',p);
 
 // ─── Connection status ────────────────────────────────────────────────────────
 async function checkConn(){
-  try{ await GET('/health'); $('sdot').className='sdot'; $('slbl').textContent='connected'; }
-  catch{ $('sdot').className='sdot err'; $('slbl').textContent='server offline'; }
+  try{ await GET('/health'); $('sdot').className='sdot ok'; $('slbl').textContent='Connected'; }
+  catch{ $('sdot').className='sdot err'; $('slbl').textContent='Server offline'; }
 }
 
 // ─── Modal helpers ────────────────────────────────────────────────────────────
