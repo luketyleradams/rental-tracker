@@ -2000,13 +2000,19 @@ function buildReport(d,titleOverride){
   const CAT={advertising:'Advertising',auto_travel:'Auto and Travel',cleaning_maintenance:'Cleaning and Maintenance',commissions:'Commissions',insurance:'Insurance',legal_professional:'Legal and Professional Fees',management_fees:'Management Fees',mortgage_interest:'Mortgage Interest Paid to Banks',other_interest:'Other Interest',repairs:'Repairs',supplies:'Supplies',taxes:'Taxes',utilities:'Utilities',depreciation:'Depreciation / Depletion',other_expenses:'Other Expenses',miles:'Mileage',salaries:'Salaries',refund:'Refunds',writeoff:'Write-offs',misc:'Miscellaneous'};
   const forgivenTotal=(d.adjustments||[]).filter(a=>a.type==='forgiven').reduce((s,a)=>s+a.amount,0);
   const rmRows=(d.roomSummary||[]).map(r=>{
+    const grossDue=round2(r.totalDue+(r.totalForgiven||0)+(r.totalWriteoff||0));
+    const expectedCell=grossDue!==r.totalDue
+      ?`${fmt(grossDue)}${r.totalForgiven>0.005?`<br><small style="color:var(--amb)">(−${fmt(r.totalForgiven)} forgiven)</small>`:''}${(r.totalWriteoff||0)>0.005?`<br><small style="color:var(--t2)">(−${fmt(r.totalWriteoff)} written off)</small>`:''}<br><small style="font-weight:600">${fmt(r.totalDue)} net</small>`
+      :fmt(r.totalDue);
     return`<tr><td>${r.building}</td><td>${r.number}</td>
-      <td style="text-align:right">${fmt(r.totalDue)}</td>
-      <td style="text-align:right">${fmt(r.totalPaid)}${r.totalForgiven>0.005?`<br><small style="color:var(--amb)">(+${fmt(r.totalForgiven)} forgiven)</small>`:''}${(r.totalWriteoff||0)>0.005?`<br><small style="color:var(--t2)">(+${fmt(r.totalWriteoff)} written off)</small>`:''}</td>
+      <td style="text-align:right">${expectedCell}</td>
+      <td style="text-align:right">${fmt(r.totalPaid)}</td>
       <td style="text-align:right;color:${r.diff>=0?'var(--grn)':'var(--red)'}">
         ${r.diff>=0?'+':''}${fmt(r.diff)}</td></tr>`;
   }).join('');
   const totalDue=round2((d.roomSummary||[]).reduce((s,r)=>s+r.totalDue,0));
+  const totalWriteoffSum=round2((d.roomSummary||[]).reduce((s,r)=>s+(r.totalWriteoff||0),0));
+  const totalGrossDue=round2(totalDue+forgivenTotal+totalWriteoffSum);
   const totalRentCollected=round2((d.roomSummary||[]).reduce((s,r)=>s+r.totalPaid,0));
   const incDiff=round2((d.roomSummary||[]).reduce((s,r)=>s+r.diff,0));
   const _expGroups={};
@@ -2033,7 +2039,7 @@ function buildReport(d,titleOverride){
     .map(([l,v,c])=>`<div class="rsb"><div class="rl">${l}</div><div class="rv" style="${c?'color:'+c:''}">${v}</div></div>`).join('')}
   </div>
   ${forgivenTotal>0.005?`<p style="font-size:12px;color:var(--amb);margin:-8px 0 14px">Forgiven this period: ${fmt(forgivenTotal)} — offsets income shortfall, not counted as expense.</p>`:''}
-  ${rmRows?`<div class="rsec"><div class="rsl">Room summary</div><table class="rt"><thead><tr>${th(['Building','Room','Expected','Collected / forgiven','Difference'],['Expected','Collected / forgiven','Difference'])}</tr></thead><tbody>${rmRows}</tbody>${trow}<td colspan="2">Total</td><td style="text-align:right">${fmt(totalDue)}</td><td style="text-align:right">${fmt(totalRentCollected)}${forgivenTotal>0.005?`<br><small style="color:var(--amb)">+${fmt(forgivenTotal)} forgiven</small>`:''}</td><td style="text-align:right;color:${incDiff>=0?'var(--grn)':'var(--red)'}">${incDiff>=0?'+':''}${fmt(incDiff)}</td></tr></tfoot></table></div>`:''}
+  ${rmRows?`<div class="rsec"><div class="rsl">Room summary</div><table class="rt"><thead><tr>${th(['Building','Room','Expected','Collected','Difference'],['Expected','Collected','Difference'])}</tr></thead><tbody>${rmRows}</tbody>${trow}<td colspan="2">Total</td><td style="text-align:right">${fmt(totalGrossDue)}${forgivenTotal>0.005?`<br><small style="color:var(--amb)">(−${fmt(forgivenTotal)} forgiven)</small>`:''}${totalWriteoffSum>0.005?`<br><small style="color:var(--t2)">(−${fmt(totalWriteoffSum)} written off)</small>`:''}${(forgivenTotal+totalWriteoffSum)>0.005?`<br><small style="font-weight:600">${fmt(totalDue)} net</small>`:''}</td><td style="text-align:right">${fmt(totalRentCollected)}</td><td style="text-align:right;color:${incDiff>=0?'var(--grn)':'var(--red)'}">${incDiff>=0?'+':''}${fmt(incDiff)}</td></tr></tfoot></table></div>`:''}
   ${expDetailRows?`<div class="rsec"><div class="rsl">Expense breakdown</div><table class="rt"><thead><tr>${th(['Category','Description','Amount'],['Amount'])}</tr></thead><tbody>${expDetailRows}</tbody>${trow}<td colspan="2">Total expenses</td><td style="text-align:right">${fmt(d.totalExpenses)}</td></tr></tfoot></table></div>`:''}
   ${adjRows?`<div class="rsec"><div class="rsl">Adjustment ledger</div><p style="font-size:12px;color:var(--t2);margin-bottom:8px">Forgiven amounts offset income; write-offs are separate expense entries in the breakdown above.</p><table class="rt"><thead><tr>${th(['Date','Room','Type','Amount','Note'],['Amount'])}</tr></thead><tbody>${adjRows}</tbody></table></div>`:''}
   ${salRows?`<div class="rsec"><div class="rsl">Salary detail</div><table class="rt"><thead><tr>${th(['Month','Building','Employee','Amount'],['Amount'])}</tr></thead><tbody>${salRows}</tbody>${trow}<td colspan="3">Total salaries</td><td style="text-align:right">${fmt(salTotal)}</td></tr></tfoot></table></div>`:''}
