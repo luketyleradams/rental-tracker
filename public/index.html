@@ -4,6 +4,7 @@
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
 <title>Rental Tracker</title>
+<script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 :root{
@@ -220,6 +221,27 @@ tbody tr:hover td{background:var(--bg2)}
     <div id="pprev" class="note"></div>
   </div>
   <div class="card">
+    <div class="ct">Other income</div>
+    <div class="fr">
+      <div class="fg"><label>Building</label><div id="oib-ms"></div></div>
+      <div class="fg"><label>Category</label>
+        <select id="oic">
+          <option value="laundry">Laundry</option>
+          <option value="parking">Parking</option>
+          <option value="storage">Storage</option>
+          <option value="pet_fee">Pet Fee</option>
+          <option value="application_fee">Application Fee</option>
+          <option value="misc">Misc</option>
+          <option value="other">Other</option>
+        </select>
+      </div>
+      <div class="fg"><label>Amount ($)</label><input type="number" id="oia" placeholder="0.00" min="0" step="0.01"/></div>
+      <div class="fg"><label>Description</label><input type="text" id="oid" placeholder="Optional"/></div>
+      <div class="fg" style="display:flex;align-items:flex-end"><button class="btn p" onclick="recOtherIncome()" style="width:100%">Add income</button></div>
+    </div>
+  </div>
+
+  <div class="card">
     <div class="sh"><h2>Payment history</h2>
       <div class="frow">
         <div id="fpb-ms"></div>
@@ -227,6 +249,11 @@ tbody tr:hover td{background:var(--bg2)}
       </div>
     </div>
     <div id="pay-tbl"></div>
+  </div>
+
+  <div class="card">
+    <div class="sh"><h2>Other income history</h2></div>
+    <div id="oi-tbl"></div>
   </div>
 </div>
 
@@ -378,7 +405,8 @@ tbody tr:hover td{background:var(--bg2)}
     </div>
     <div style="display:flex;gap:8px">
       <button class="btn p" onclick="genReport()">Preview report</button>
-      <button class="btn s" onclick="window.print()">Print / Save PDF</button>
+      <button class="btn s" onclick="printReport()">Print / Save PDF</button>
+      <button class="btn" onclick="exportExcel()">Export to Excel</button>
     </div>
   </div>
   <div id="rep-out"></div>
@@ -458,6 +486,7 @@ let _payBldSel = null; // null = all
 let _expBldSel = null;
 let _expBldForm = null;   // null = all buildings (= 'both')
 let _staffBldForm = null;
+let _oiBldForm = null;
 
 function buildMultiSelect(containerId, buildings, currentSel, onChange) {
   const container = $(containerId);
@@ -603,6 +632,7 @@ function fillBuildings(){
   buildMultiSelect('feb-ms', B, _expBldSel,   sel=>{ _expBldSel=sel; loadExp(); });
   // Multi-select form fields (all = 'both')
   buildMultiSelect('eb-ms',  B, _expBldForm,  sel=>{ _expBldForm=sel; });
+  buildMultiSelect('oib-ms', B, _oiBldForm,  sel=>{ _oiBldForm=sel; });
   buildMultiSelect('sfb-ms', B, _staffBldForm,sel=>{ _staffBldForm=sel; });
   // Report building checkboxes
   const rbc=$('rbc');
@@ -613,6 +643,7 @@ function fillBuildings(){
 function refreshAll(){
   loadDash();
   loadPay();
+  loadOtherIncome();
   loadExp();
   loadAdj();
   loadSalRoster();
@@ -643,7 +674,7 @@ function setGlobalMo(mo){
 // ─── Tab navigation ───────────────────────────────────────────────────────────
 const TAB_ACTIONS = {
   dashboard:()=>loadDash(),
-  payments: ()=>loadPay(),
+  payments: ()=>{ loadPay(); loadOtherIncome(); },
   expenses: ()=>{ loadExp(); loadSalRoster(); loadAdj(); },
   rooms:    ()=>renderRooms(),
   staff:    ()=>renderStaff(),
@@ -743,6 +774,42 @@ async function loadPay(){
     });
     t.appendChild(tb); $('pay-tbl').innerHTML=''; $('pay-tbl').appendChild(t);
   }catch(e){ $('pay-tbl').innerHTML=`<div class="empty">${e.message}</div>`; }
+}
+
+// ─── OTHER INCOME ─────────────────────────────────────────────────────────────
+const OI_LABEL={laundry:'Laundry',parking:'Parking',storage:'Storage',pet_fee:'Pet Fee',application_fee:'Application Fee',misc:'Misc',other:'Other'};
+
+async function recOtherIncome(){
+  const bld=(_oiBldForm&&_oiBldForm.length===1)?_oiBldForm[0]:'both';
+  const cat=$('oic').value, amt=parseFloat($('oia').value), desc=$('oid').value.trim();
+  if(!(amt>0)){ toast('Enter a valid amount.',true); return; }
+  try{
+    await POST('/other-income',{building:bld,category:cat,month:CUR_MO,amount:amt,description:desc});
+    toast('Income recorded.'); $('oia').value=''; $('oid').value=''; refreshAll();
+  }catch(e){ toast(e.message,true); }
+}
+
+async function loadOtherIncome(){
+  const c=$('oi-tbl');
+  try{
+    const rows=await GET(`/other-income?month=${CUR_MO}`);
+    if(!rows.length){ c.innerHTML='<div class="empty">No other income this month.</div>'; return; }
+    const t=document.createElement('table');
+    t.innerHTML=`<thead><tr><th>Building</th><th>Category</th><th>Amount</th><th>Description</th><th style="width:62px"></th></tr></thead>`;
+    const tb=document.createElement('tbody');
+    rows.forEach(r=>{
+      const tr=mkEl('tr',{},[`<td>${r.building==='both'?'General':r.building}</td><td><span class="badge bb">${OI_LABEL[r.category]||r.category}</span></td><td>${fmt(r.amount)}</td><td style="color:var(--t2)">${r.description||'—'}</td><td></td>`]);
+      tr.lastElementChild.appendChild(trashBtn(()=>delOtherIncome(r.id),'Delete income'));
+      tb.appendChild(tr);
+    });
+    t.appendChild(tb); c.innerHTML=''; c.appendChild(t);
+  }catch(e){ c.innerHTML=`<div class="empty">${e.message}</div>`; }
+}
+
+async function delOtherIncome(id){
+  if(!confirm('Delete this income entry?')) return;
+  try{ await DEL(`/other-income/${id}`); toast('Deleted.'); refreshAll(); }
+  catch(e){ toast(e.message,true); }
 }
 
 // ─── EXPENSES ─────────────────────────────────────────────────────────────────
@@ -1252,7 +1319,9 @@ async function loadDash(){
   try{
     const d=await GET(`/dashboard/${CUR_MO}`);
     $('dmet').innerHTML=`
-      <div class="mc"><div class="ml">Income collected</div><div class="mv" style="color:var(--grn)">${fmt(d.totalIncome)}</div></div>
+      <div class="mc"><div class="ml">Rent collected</div><div class="mv" style="color:var(--grn)">${fmt(d.rentIncome)}</div></div>
+      ${d.otherIncome>0?`<div class="mc"><div class="ml">Other income</div><div class="mv" style="color:var(--grn)">${fmt(d.otherIncome)}</div></div>`:''}
+      <div class="mc"><div class="ml">Total income</div><div class="mv" style="color:var(--grn);font-weight:700">${fmt(d.totalIncome)}</div></div>
       <div class="mc"><div class="ml">Expected rent</div><div class="mv">${fmt(d.expectedRent)}</div></div>
       <div class="mc"><div class="ml">Total expenses</div><div class="mv" style="color:var(--red)">${fmt(d.totalExpenses)}</div></div>
       <div class="mc"><div class="ml">Net profit</div><div class="mv" style="color:${d.net>=0?'var(--grn)':'var(--red)'}">${fmt(d.net)}</div></div>`;
@@ -1302,6 +1371,12 @@ async function doBackup(){
 }
 
 // ─── REPORTS ─────────────────────────────────────────────────────────────────
+async function printReport(){
+  await genReport();
+  if($('rep-out').querySelector('.empty')) return;
+  window.print();
+}
+
 async function genReport(){
   const from=$('rf').value, to=$('rt').value, group=$('rg').value;
   const blds=[...document.querySelectorAll('#rbc input:checked')].map(c=>c.value);
@@ -1315,6 +1390,86 @@ async function genReport(){
     const out=group==='month'?d.months.map(m=>buildMonthReport(d,m)).join(''):buildReport(d);
     $('rep-out').innerHTML=out;
   }catch(e){ $('rep-out').innerHTML=`<div class="empty">${e.message}</div>`; }
+}
+
+async function exportExcel(){
+  const from=$('rf').value, to=$('rt').value;
+  const blds=[...document.querySelectorAll('#rbc input:checked')].map(c=>c.value);
+  if(!from||!to){ toast('Select a date range.',true); return; }
+  if(!blds.length){ toast('Select at least one building.',true); return; }
+  toast('Building Excel…');
+  try{
+    const qs=new URLSearchParams({from,to,buildings:blds.join(',')});
+    const d=await GET(`/report?${qs}`);
+    const wb=XLSX.utils.book_new();
+    const title=from===to?fmtMo(from):`${fmtMo(from)} – ${fmtMo(to)}`;
+
+    // Summary sheet
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
+      [title+' — Summary'],
+      [],
+      ['Metric','Amount'],
+      ['Total Income', d.totalIncome],
+      ['Expected Rent', d.expectedRent],
+      ['Total Expenses', d.totalExpenses],
+      ['Net Profit', d.net],
+      ...(d.totalMiles>0?[['Miles Driven', d.totalMiles]]:[]),
+    ]), 'Summary');
+
+    // Room Summary sheet
+    if(d.roomSummary?.length){
+      const rows=[['Building','Room','Expected','Collected','Forgiven','Difference']];
+      d.roomSummary.forEach(r=>rows.push([r.building,r.number,r.totalDue,r.totalPaid,r.totalForgiven||0,r.diff]));
+      const totalDue=d.roomSummary.reduce((s,r)=>s+r.totalDue,0);
+      rows.push(['','Total',totalDue,d.totalIncome,'','']);
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(rows), 'Room Summary');
+    }
+
+    // Payments sheet
+    if(d.payments?.length){
+      const rows=[['Month','Building','Room','Amount','Days Late','Late Fee','Notes']];
+      d.payments.forEach(p=>rows.push([fmtMo(p.month),p.building,p.number,p.amount,p.days_late||0,p.late_fee||0,p.notes||'']));
+      rows.push(['','','Total',d.totalIncome,'','','']);
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(rows), 'Payments');
+    }
+
+    // Expenses sheet
+    if(d.expenses?.length){
+      const CAT={advertising:'Advertising',auto_travel:'Auto and Travel',cleaning_maintenance:'Cleaning and Maintenance',commissions:'Commissions',insurance:'Insurance',legal_professional:'Legal and Professional Fees',management_fees:'Management Fees',mortgage_interest:'Mortgage Interest',other_interest:'Other Interest',repairs:'Repairs',supplies:'Supplies',taxes:'Taxes',utilities:'Utilities',depreciation:'Depreciation',other_expenses:'Other Expenses',miles:'Mileage',salaries:'Salaries',refund:'Refunds',writeoff:'Write-offs',misc:'Misc'};
+      const rows=[['Month','Building','Category','Description','Amount']];
+      d.expenses.forEach(e=>rows.push([fmtMo(e.month),e.building,CAT[e.category]||e.category,e.description||'',e.amount]));
+      rows.push(['','','','Total',d.totalExpenses]);
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(rows), 'Expenses');
+    }
+
+    // Salaries sheet
+    if(d.salaries?.length){
+      const rows=[['Month','Building','Employee','Amount']];
+      d.salaries.forEach(e=>rows.push([fmtMo(e.month),e.building==='both'?'General':e.building,e.description,e.amount]));
+      rows.push(['','','Total',d.salaries.reduce((s,e)=>s+e.amount,0)]);
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(rows), 'Salaries');
+    }
+
+    // Other Income sheet
+    if(d.otherIncome?.length){
+      const rows=[['Month','Building','Category','Description','Amount']];
+      d.otherIncome.forEach(r=>rows.push([fmtMo(r.month),r.building==='both'?'General':r.building,OI_LABEL[r.category]||r.category,r.description||'',r.amount]));
+      rows.push(['','','','Total',d.otherIncome.reduce((s,r)=>s+r.amount,0)]);
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(rows), 'Other Income');
+    }
+
+    // Adjustments sheet
+    if(d.adjustments?.length){
+      const ATYPE={forgiven:'Forgiven',writeoff:'Write-off',charge:'Extra Charge',refund:'Refund'};
+      const rows=[['Date','Building','Room','Type','Amount','Note']];
+      d.adjustments.forEach(a=>rows.push([a.date,a.building,a.number,ATYPE[a.type]||a.type,a.amount,a.note||'']));
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(rows), 'Adjustments');
+    }
+
+    const fname=`rental-report-${from}-to-${to}.xlsx`;
+    XLSX.writeFile(wb, fname);
+    toast('Excel file downloaded.');
+  }catch(e){ toast(e.message,true); }
 }
 
 function buildMonthReport(d,mo){

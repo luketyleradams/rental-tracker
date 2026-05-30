@@ -97,6 +97,17 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_expenses_cat   ON expenses(category);
   CREATE INDEX IF NOT EXISTS idx_adj_room       ON adjustments(room_id);
   CREATE INDEX IF NOT EXISTS idx_adj_period     ON adjustments(period_id);
+
+  CREATE TABLE IF NOT EXISTS other_income (
+    id          TEXT PRIMARY KEY,
+    building    TEXT NOT NULL,
+    category    TEXT NOT NULL DEFAULT 'other',
+    month       TEXT NOT NULL CHECK(month GLOB '????-??'),
+    amount      REAL NOT NULL CHECK(amount > 0),
+    description TEXT NOT NULL DEFAULT '',
+    created     TEXT NOT NULL DEFAULT(strftime('%Y-%m-%dT%H:%M:%SZ','now'))
+  );
+  CREATE INDEX IF NOT EXISTS idx_other_income_month ON other_income(month);
 `);
 
 // ─── Migrations ───────────────────────────────────────────────────────────────
@@ -670,6 +681,45 @@ app.delete('/api/adjustments/:id', h((req, res) => {
   res.json({ ok: true });
 }));
 
+// ─── OTHER INCOME ─────────────────────────────────────────────────────────────
+
+const OTHER_INCOME_CATS = new Set(['laundry','parking','storage','pet_fee','application_fee','misc','other']);
+
+app.get('/api/other-income', h((req, res) => {
+  const { month, building } = req.query;
+  let sql = 'SELECT * FROM other_income WHERE 1=1';
+  const args = [];
+  if (month)    { sql += ' AND month=?';    args.push(month); }
+  if (building && building !== 'all') { sql += ' AND (building=? OR building=\'both\')'; args.push(building); }
+  sql += ' ORDER BY created DESC';
+  res.json(db.prepare(sql).all(...args));
+}));
+
+app.post('/api/other-income', h((req, res) => {
+  const { building, category, month, amount, description } = req.body;
+  if (!building || !month || !(amount > 0)) return badReq(res, 'building, month, amount required');
+  const cat = OTHER_INCOME_CATS.has(category) ? category : 'other';
+  const id = uid();
+  db.prepare('INSERT INTO other_income (id,building,category,month,amount,description) VALUES (?,?,?,?,?,?)')
+    .run(id, building, cat, month, amount, description || '');
+  res.status(201).json(db.prepare('SELECT * FROM other_income WHERE id=?').get(id));
+}));
+
+app.patch('/api/other-income/:id', h((req, res) => {
+  const row = db.prepare('SELECT * FROM other_income WHERE id=?').get(req.params.id);
+  if (!row) return notFound(res, 'Income entry');
+  const { amount, description } = req.body;
+  if (!(amount > 0)) return badReq(res, 'amount required');
+  db.prepare('UPDATE other_income SET amount=?, description=? WHERE id=?').run(amount, description ?? row.description, req.params.id);
+  res.json(db.prepare('SELECT * FROM other_income WHERE id=?').get(req.params.id));
+}));
+
+app.delete('/api/other-income/:id', h((req, res) => {
+  const info = db.prepare('DELETE FROM other_income WHERE id=?').run(req.params.id);
+  if (!info.changes) return notFound(res, 'Income entry');
+  res.json({ ok: true });
+}));
+
 // ─── DASHBOARD ────────────────────────────────────────────────────────────────
 
 app.get('/api/dashboard/:month', h((req, res) => {
@@ -684,7 +734,9 @@ app.get('/api/dashboard/:month', h((req, res) => {
   let expectedRent = 0;
   periods.forEach(p => { const pro = proratedRent(p, month); if (pro) expectedRent += pro.prorated; });
 
-  const totalIncome   = db.prepare("SELECT COALESCE(SUM(amount),0) AS t FROM payments WHERE month=?").get(month).t;
+  const rentIncome    = db.prepare("SELECT COALESCE(SUM(amount),0) AS t FROM payments WHERE month=?").get(month).t;
+  const otherIncome   = db.prepare("SELECT COALESCE(SUM(amount),0) AS t FROM other_income WHERE month=?").get(month).t;
+  const totalIncome   = round2(rentIncome + otherIncome);
   const totalExpenses = db.prepare("SELECT COALESCE(SUM(amount),0) AS t FROM expenses WHERE month=?").get(month).t;
 
   const [y, mo] = month.split('-').map(Number);
@@ -737,6 +789,8 @@ app.get('/api/dashboard/:month', h((req, res) => {
   res.json({
     month,
     expectedRent: round2(expectedRent),
+    rentIncome:   round2(rentIncome),
+    otherIncome:  round2(otherIncome),
     totalIncome:  round2(totalIncome),
     totalExpenses:round2(totalExpenses),
     net:          round2(totalIncome - totalExpenses),
@@ -821,7 +875,15 @@ app.get('/api/report', h((req, res) => {
   const expByCategory = {};
   expenses.forEach(e => { expByCategory[e.category] = round2((expByCategory[e.category] || 0) + e.amount); });
 
-  const totalIncome   = round2(payments.reduce((s, p) => s + p.amount, 0));
+  // Other income
+  let otherIncSQL = 'SELECT * FROM other_income WHERE month>=? AND month<=?';
+  const otherIncArgs = [from, to];
+  if (bldFilter) { otherIncSQL += ` AND (building='both' OR building IN (${bldFilter.map(()=>'?').join(',')}))`; otherIncArgs.push(...bldFilter); }
+  const otherIncomeRows = db.prepare(otherIncSQL).all(...otherIncArgs);
+
+  const rentTotal     = round2(payments.reduce((s, p) => s + p.amount, 0));
+  const otherIncTotal = round2(otherIncomeRows.reduce((s, r) => s + r.amount, 0));
+  const totalIncome   = round2(rentTotal + otherIncTotal);
   const totalExpenses = round2(expenses.reduce((s, e) => s + e.amount, 0));
   const totalMiles    = round2(expenses.filter(e => e.category === 'miles').reduce((s, e) => s + (e.miles || 0), 0));
   let expectedRent = 0;
@@ -838,6 +900,7 @@ app.get('/api/report', h((req, res) => {
     expectedRent: round2(expectedRent), totalMiles,
     expByCategory, roomSummary,
     payments, expenses, adjustments: allAdj,
+    otherIncome: otherIncomeRows,
     salaries: expenses.filter(e => e.category === 'salaries')
   });
 }));
