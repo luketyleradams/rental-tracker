@@ -291,7 +291,10 @@ function scheduleDailyBackup() {
   const next = new Date(now);
   next.setDate(next.getDate() + 1);
   next.setHours(0, 1, 0, 0);
-  setTimeout(() => { runBackup(); scheduleDailyBackup(); }, next - now);
+  setTimeout(() => {
+    try { runBackup(); } catch (e) { console.error('[backup] scheduled backup failed:', e.message); }
+    scheduleDailyBackup();
+  }, next - now);
 }
 
 // ─── Express ──────────────────────────────────────────────────────────────────
@@ -318,12 +321,12 @@ function h(fn) {
       if (result && typeof result.catch === 'function') {
         result.catch(err => {
           console.error('[api]', err.message);
-          if (!res.headersSent) res.status(500).json({ error: err.message });
+          if (!res.headersSent) res.status(500).json({ error: 'Internal server error' });
         });
       }
     } catch (err) {
       console.error('[api]', err.message);
-      if (!res.headersSent) res.status(500).json({ error: err.message });
+      if (!res.headersSent) res.status(500).json({ error: 'Internal server error' });
     }
   };
 }
@@ -438,6 +441,13 @@ app.patch('/api/rooms/:id', h((req, res) => {
 }));
 
 app.delete('/api/rooms/:id', h((req, res) => {
+  const { force } = req.query;
+  if (!force) {
+    const hasPeriods  = db.prepare('SELECT 1 FROM periods  WHERE room_id=? LIMIT 1').get(req.params.id);
+    const hasPayments = db.prepare('SELECT 1 FROM payments WHERE room_id=? LIMIT 1').get(req.params.id);
+    if (hasPeriods || hasPayments)
+      return res.status(409).json({ error: 'Room has rental history. Add ?force=1 to confirm permanent deletion.' });
+  }
   const info = db.prepare('DELETE FROM rooms WHERE id=?').run(req.params.id);
   if (!info.changes) return notFound(res, 'Room');
   res.json({ ok: true });
@@ -964,7 +974,7 @@ app.get('/api/dashboard/:month', h((req, res) => {
     const periodDetails = overlapping.map(p => {
       const pro = proratedRent(p, month);
       if (!pro) return null;
-      const forgiven  = db.prepare(`SELECT COALESCE(SUM(amount),0) AS t FROM adjustments WHERE room_id=? AND period_id=? AND type='forgiven' AND substr(date,1,7)=?`).get(room.id, p.id, month).t;
+      const forgiven  = db.prepare(`SELECT COALESCE(SUM(amount),0) AS t FROM adjustments WHERE room_id=? AND period_id=? AND (type='forgiven' OR (type='charge' AND status='forgiven')) AND substr(date,1,7)=?`).get(room.id, p.id, month).t;
       const charged   = db.prepare(`SELECT COALESCE(SUM(amount),0) AS t FROM adjustments WHERE room_id=? AND period_id=? AND type='charge' AND status='active' AND substr(date,1,7)=?`).get(room.id, p.id, month).t;
       const writeoff  = db.prepare(`SELECT COALESCE(SUM(amount),0) AS t FROM adjustments WHERE room_id=? AND period_id=? AND type='writeoff'  AND substr(date,1,7)=?`).get(room.id, p.id, month).t;
       const refunded  = db.prepare(`SELECT COALESCE(SUM(amount),0) AS t FROM adjustments WHERE room_id=? AND period_id=? AND type='refund'    AND substr(date,1,7)=?`).get(room.id, p.id, month).t;
@@ -1082,7 +1092,7 @@ app.get('/api/report', h((req, res) => {
         .forEach(p => { const pro = proratedRent(p, m); if (pro) due += pro.prorated; });
       paid += payments.filter(py => py.room_id === room.id && py.month === m).reduce((s, x) => s + x.amount, 0);
     });
-    const forgiven  = allAdj.filter(a => a.room_id === room.id && a.type === 'forgiven').reduce((s, a) => s + a.amount, 0);
+    const forgiven  = allAdj.filter(a => a.room_id === room.id && (a.type === 'forgiven' || (a.type === 'charge' && a.status === 'forgiven'))).reduce((s, a) => s + a.amount, 0);
     const writeoffs = allAdj.filter(a => a.room_id === room.id && a.type === 'writeoff').reduce((s, a) => s + a.amount, 0);
     const charged   = allAdj.filter(a => a.room_id === room.id && a.type === 'charge' && a.status !== 'forgiven').reduce((s, a) => s + a.amount, 0);
     const refunds   = allAdj.filter(a => a.room_id === room.id && a.type === 'refund').reduce((s, a) => s + a.amount, 0);
@@ -1184,7 +1194,7 @@ app.get('/api/backup/:name', h((req, res) => {
 // ─── Health ───────────────────────────────────────────────────────────────────
 
 app.get('/api/health', (req, res) => {
-  res.json({ ok: true, uptime: Math.floor(process.uptime()), db: DB_PATH });
+  res.json({ ok: true, uptime: Math.floor(process.uptime()) });
 });
 
 // ─── Start ────────────────────────────────────────────────────────────────────
@@ -1204,6 +1214,13 @@ app.listen(PORT, '127.0.0.1', () => {
   catch (e) { console.error('[backup] startup backup failed:', e.message); }
 
   scheduleDailyBackup();
+}).on('error', err => {
+  if (err.code === 'EADDRINUSE') {
+    console.error(`\n  ERROR: Port ${PORT} is already in use. Close the other instance and try again.\n`);
+  } else {
+    console.error('\n  ERROR starting server:', err.message, '\n');
+  }
+  process.exit(1);
 });
 
 process.on('SIGINT',  () => { db.close(); process.exit(0); });

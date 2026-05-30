@@ -87,6 +87,7 @@ if not exist "%APP%\node_modules" (
   echo.
   pushd "%APP%" && call npm install --omit=dev && popd
   if !errorlevel! neq 0 (
+    if exist "%APP%\node_modules" rmdir /s /q "%APP%\node_modules"
     echo.
     echo  ERROR: npm install failed.
     echo.

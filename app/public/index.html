@@ -447,11 +447,11 @@ tbody tr:hover td{background:var(--bg2)}
 // ─── App state ────────────────────────────────────────────────────────────────
 let ROOMS = [], STAFF = [], CUR_MO = '';
 let BUILDINGS_LIST = [];
-const MRATE = 0.725;
+const MRATE = 0.70; // IRS standard mileage rate — update each January (2025: $0.70/mile)
 
 // ─── Utilities ────────────────────────────────────────────────────────────────
 const $ = id => document.getElementById(id);
-const fmt = n => '$' + (+n).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
+const fmt = n => '$' + (+(n ?? 0)).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
 const fmtMo = m => { if(!m) return ''; const[y,mo]=m.split('-'); return new Date(+y,+mo-1,1).toLocaleDateString('en-US',{month:'long',year:'numeric'}); };
 const round2 = n => Math.round(n * 100) / 100;
 const ini = n => n.trim().split(/\s+/).map(w=>w[0]).join('').toUpperCase().slice(0,2);
@@ -744,6 +744,7 @@ function shiftPayMo(d){
   const[y,m]=(CUR_MO).split('-').map(Number);
   const dt=new Date(Date.UTC(y,m-1+d,1));
   setGlobalMo(`${dt.getUTCFullYear()}-${String(dt.getUTCMonth()+1).padStart(2,'0')}`);
+  refreshAll();
 }
 function shiftMo(d){
   const[y,m]=CUR_MO.split('-').map(Number);
@@ -875,11 +876,14 @@ async function recPay(){
   const rid=$('pr').value, mo=$('pm').value, amt=parseFloat($('pa').value), notes=$('pn').value.trim();
   const daysLate=Math.max(0,parseInt($('pdl').value)||0);
   if(!rid||!mo||!(amt>0)){ toast('Fill in room, month and amount.',true); return; }
+  const btn=document.querySelector('button[onclick="recPay()"]');
+  if(btn) btn.disabled=true;
   try{
     await POST('/payments',{room_id:rid,month:mo,amount:amt,notes,days_late:daysLate,late_fee:_previewLateFee,period_id:window._previewPeriodId||null});
     toast('Payment recorded.');
     $('pa').value=''; $('pn').value=''; $('pdl').value='0'; _previewLateFee=0; window._previewPeriodId=null; payPreview(); refreshAll();
   }catch(e){ toast(e.message,true); }
+  finally{ if(btn) btn.disabled=false; }
 }
 
 async function delPay(id){
@@ -956,7 +960,7 @@ function onCatChange(){
 function onMilesInput(){
   if($('ec').value!=='miles') return;
   const mi=parseFloat($('ea').value)||0;
-  $('mhint').textContent=mi>0?`${mi.toLocaleString()} mi × $0.725 = ${fmt(mi*MRATE)} deductible`:'IRS business rate: $0.725/mile';
+  $('mhint').textContent=mi>0?`${mi.toLocaleString()} mi × $${MRATE.toFixed(3)} = ${fmt(mi*MRATE)} deductible`:`IRS business rate: $${MRATE.toFixed(3)}/mile`;
 }
 
 async function recExp(){
@@ -965,12 +969,15 @@ async function recExp(){
   if(!mo||!(raw>0)){ toast('Fill in month and amount.',true); return; }
   const body={building:bld,category:cat,month:mo,amount:raw,description:desc};
   if(cat==='miles'){ body.miles=raw; body.amount=+(raw*MRATE).toFixed(2); }
+  const btn=document.querySelector('button[onclick="recExp()"]');
+  if(btn) btn.disabled=true;
   try{
     await POST('/expenses',body);
     toast('Expense recorded.');
     $('ea').value=''; $('ed').value=''; $('mhint').style.display='none';
     refreshAll();
   }catch(e){ toast(e.message,true); }
+  finally{ if(btn) btn.disabled=false; }
 }
 
 async function delExp(id){
@@ -1422,11 +1429,15 @@ async function undoPay(expId,mo){
 async function payAllStaff(){
   const mo=$('sm').value;
   if(!mo){ toast('Select a month.',true); return; }
+  if(!confirm(`Record salary payments for all staff for ${fmtMo(mo)}?`)) return;
+  const btn=document.querySelector('button[onclick="payAllStaff()"]');
+  if(btn) btn.disabled=true;
   try{
     const created=await POST('/salaries/pay-all',{month:mo});
     toast(`Paid ${created.length} staff member${created.length!==1?'s':''}.`);
     refreshAll();
   }catch(e){ toast(e.message,true); }
+  finally{ if(btn) btn.disabled=false; }
 }
 
 // ─── ROOMS ────────────────────────────────────────────────────────────────────
@@ -1978,7 +1989,7 @@ function buildMonthReport(d,mo){
   const roomSummary=(d.roomSummary||[]).map(r=>{
     const moRent     =round2(roomExpected[r.id]||0);
     const moPaid     =round2(payments.filter(p=>p.room_id===r.id).reduce((s,p)=>s+p.amount,0));
-    const moForgiven =round2(adjustments.filter(a=>a.room_id===r.id&&a.type==='forgiven').reduce((s,a)=>s+a.amount,0));
+    const moForgiven =round2(adjustments.filter(a=>a.room_id===r.id&&(a.type==='forgiven'||(a.type==='charge'&&a.status==='forgiven'))).reduce((s,a)=>s+a.amount,0));
     const moWriteoffs=round2(adjustments.filter(a=>a.room_id===r.id&&a.type==='writeoff').reduce((s,a)=>s+a.amount,0));
     const moCharged  =round2(adjustments.filter(a=>a.room_id===r.id&&a.type==='charge').reduce((s,a)=>s+a.amount,0));
     const moRefunds  =round2(adjustments.filter(a=>a.room_id===r.id&&a.type==='refund').reduce((s,a)=>s+a.amount,0));
@@ -1987,7 +1998,7 @@ function buildMonthReport(d,mo){
     const moDiff     =round2(moPaid-(moDue+moForgiven+moWriteoffs));
     return{...r,totalDue:moDue,totalPaid:moPaid,totalForgiven:moForgiven,
            totalWriteoff:moWriteoffs,totalCharged:moCharged,diff:moDiff};
-  }).filter(r=>r.totalDue>0||r.totalPaid>0); // skip rooms with no activity this month
+  }).filter(r=>r.totalDue>0||r.totalPaid>0||r.totalForgiven>0||r.totalWriteoffs>0); // skip rooms with no activity this month
 
   const sub={...d,payments,expenses,adjustments,otherIncome,roomSummary,
     totalIncome:ti,totalExpenses:te,net:round2(ti-te),expectedRent};
@@ -1998,7 +2009,7 @@ function buildReport(d,titleOverride){
   const title=titleOverride||(d.from===d.to?fmtMo(d.from):`${fmtMo(d.from)} – ${fmtMo(d.to)}`)+' — Report';
   const blds=Array.isArray(d.buildings)?d.buildings.join(', '):'all';
   const CAT={advertising:'Advertising',auto_travel:'Auto and Travel',cleaning_maintenance:'Cleaning and Maintenance',commissions:'Commissions',insurance:'Insurance',legal_professional:'Legal and Professional Fees',management_fees:'Management Fees',mortgage_interest:'Mortgage Interest Paid to Banks',other_interest:'Other Interest',repairs:'Repairs',supplies:'Supplies',taxes:'Taxes',utilities:'Utilities',depreciation:'Depreciation / Depletion',other_expenses:'Other Expenses',miles:'Mileage',salaries:'Salaries',refund:'Refunds',writeoff:'Write-offs',misc:'Miscellaneous'};
-  const forgivenTotal=(d.adjustments||[]).filter(a=>a.type==='forgiven').reduce((s,a)=>s+a.amount,0);
+  const forgivenTotal=(d.adjustments||[]).filter(a=>a.type==='forgiven'||(a.type==='charge'&&a.status==='forgiven')).reduce((s,a)=>s+a.amount,0);
   const rmRows=(d.roomSummary||[]).map(r=>{
     const grossDue=round2(r.totalDue+(r.totalForgiven||0)+(r.totalWriteoff||0));
     const expectedCell=grossDue!==r.totalDue
@@ -2051,7 +2062,7 @@ function buildReport(d,titleOverride){
 async function init(){
   let year, month;
   try{
-    const t=await GET('/api/now');
+    const t=await GET('/now');
     year=t.year; month=t.month;
   }catch(e){
     const fb=new Date();
@@ -2060,7 +2071,7 @@ async function init(){
   CUR_MO=`${year}-${String(month).padStart(2,'0')}`;
   setPayMo(CUR_MO); $('em').value=CUR_MO; $('sm').value=CUR_MO;
   $('fpm').value=''; $('rf').value=`${year}-01`; $('rt').value=CUR_MO;
-  $('chd').value=new Date().toISOString().slice(0,10);
+  const _today=new Date(); $('chd').value=`${_today.getFullYear()}-${String(_today.getMonth()+1).padStart(2,'0')}-${String(_today.getDate()).padStart(2,'0')}`;
 
   await checkConn();
   setInterval(checkConn,30000);
