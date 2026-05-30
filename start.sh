@@ -1,6 +1,12 @@
 #!/bin/sh
 cd "$(dirname "$0")"
 
+if command -v git >/dev/null 2>&1 && [ -d ".git" ]; then
+  echo "Checking for updates..."
+  git pull --quiet && echo "Up to date." || echo "Update failed (continuing with current version)."
+  echo ""
+fi
+
 if ! command -v node >/dev/null 2>&1; then
   echo "Node.js is not installed. Download it from https://nodejs.org"
   exit 1

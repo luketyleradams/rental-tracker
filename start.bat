@@ -7,6 +7,21 @@ echo.
 
 cd /d "%~dp0"
 
+:: ── 0. Auto-update from GitHub ───────────────────────────────────────────────
+where git >nul 2>&1
+if %errorlevel% equ 0 (
+  if exist ".git" (
+    echo  Checking for updates...
+    git pull --quiet
+    if !errorlevel! equ 0 (
+      echo  Up to date.
+    ) else (
+      echo  Update failed. Continuing with current version.
+    )
+    echo.
+  )
+)
+
 :: ── 1. Find Node.js ──────────────────────────────────────────────────────────
 :: Prefer local portable copy; accept system install only if version >= 18;
 :: otherwise auto-download a portable copy (no admin required).
