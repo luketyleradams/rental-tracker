@@ -100,7 +100,7 @@ if not exist "%APP%\node_modules" (
     echo  Installing packages. This takes about 30 seconds...
   )
   echo.
-  pushd "%APP%" && call npm install --omit=dev && popd
+  pushd "%APP%" && call npm install --omit=dev --silent && popd
   if !errorlevel! neq 0 (
     if exist "%APP%\node_modules" rmdir /s /q "%APP%\node_modules"
     echo.
@@ -116,7 +116,7 @@ if not exist "%APP%\node_modules" (
   if "!FIRST_RUN!"=="1" (
     echo.
     echo  ============================================================
-    echo   Setup complete! Rental Tracker is ready.
+    echo   Setup complete. Rental Tracker is ready.
     echo  ============================================================
   )
   echo.
