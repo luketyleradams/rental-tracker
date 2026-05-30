@@ -120,7 +120,7 @@ echo.
 
 start /min cmd /c "timeout /t 2 /nobreak >nul && start http://localhost:3000"
 
-node "%APP%\server.js"
+node "%APP%\server.js" <nul
 
 echo.
 echo  Server stopped. Press any key to close.
