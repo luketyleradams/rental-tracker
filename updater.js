@@ -44,14 +44,25 @@ function get(url, timeout = 15000) {
   });
 }
 
-function copyDir(src, dst) {
+function syncDir(src, dst) {
   fs.mkdirSync(dst, { recursive: true });
-  for (const entry of fs.readdirSync(src)) {
+  const srcEntries = new Set(fs.readdirSync(src));
+
+  // Delete local files/dirs that no longer exist in the remote
+  for (const entry of fs.readdirSync(dst)) {
+    if (SKIP.has(entry)) continue;
+    if (!srcEntries.has(entry)) {
+      fs.rmSync(path.join(dst, entry), { recursive: true, force: true });
+    }
+  }
+
+  // Copy/overwrite everything from remote
+  for (const entry of srcEntries) {
     if (SKIP.has(entry)) continue;
     const srcPath = path.join(src, entry);
     const dstPath = path.join(dst, entry);
     if (fs.statSync(srcPath).isDirectory()) {
-      copyDir(srcPath, dstPath);
+      syncDir(srcPath, dstPath);
     } else {
       fs.copyFileSync(srcPath, dstPath);
     }
@@ -127,7 +138,7 @@ async function main() {
   // 5. Copy new files over, preserving user data
   console.log('  Installing update...');
   try {
-    copyDir(path.join(tmpDir, subDir), ROOT);
+    syncDir(path.join(tmpDir, subDir), ROOT);
   } catch (e) {
     console.log(`  Install failed (${e.message}). Continuing with current version.`);
     cleanup(tmpZip, tmpDir);
