@@ -1,6 +1,6 @@
 {
   "name": "rental-tracker",
-  "version": "1.4.1",
+  "version": "1.4.2",
   "description": "Rental income and expense tracker",
   "main": "server.js",
   "scripts": {
