@@ -11,12 +11,18 @@ If you are on a machine without the hook (fresh clone), bump manually before com
 ```bash
 node -e "
   const fs=require('fs');
-  const p=JSON.parse(fs.readFileSync('package.json','utf8'));
+  const p=JSON.parse(fs.readFileSync('app/package.json','utf8'));
   const [ma,mi,pa]=p.version.split('.').map(Number);
   p.version=ma+'.'+mi+'.'+(pa+1);
-  fs.writeFileSync('package.json',JSON.stringify(p,null,2)+'\n');
+  fs.writeFileSync('app/package.json',JSON.stringify(p,null,2)+'\n');
 "
-git add package.json
+git add app/package.json
 ```
+
+## Project structure
+
+- `start.command` — launch on Mac or Linux
+- `start.bat` — launch on Windows
+- `app/` — all application code (server, updater, frontend, dependencies)
 
 Then include it in your commit before pushing. Never push without a version bump — the updater will silently skip the download on all other installs.
