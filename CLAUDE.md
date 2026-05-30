@@ -4,7 +4,7 @@
 
 The app has a built-in updater (`updater.js`) that compares `package.json` version numbers between the local install and GitHub. It only downloads an update when the remote version is **strictly greater** than the local one.
 
-**Every push must include a version bump** — the pre-push git hook handles this automatically by amending the HEAD commit to include the bumped patch version before the push goes out.
+**Every commit automatically bumps the patch version** — the pre-commit git hook increments the patch version in `package.json` and stages it as part of every commit. This means every pushed commit is guaranteed to have a higher version than the previous one, so the updater always detects changes.
 
 If you are on a machine without the hook (fresh clone), bump manually before committing:
 
