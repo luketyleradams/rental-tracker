@@ -12,8 +12,13 @@ cd /d "%~dp0"
 :: otherwise auto-download a portable copy (no admin required).
 
 if exist "%~dp0runtime\node.exe" (
-  set "PATH=%~dp0runtime;%PATH%"
-  goto :have_node
+  if exist "%~dp0runtime\node_modules\npm\bin\npm-cli.js" (
+    set "PATH=%~dp0runtime;%PATH%"
+    goto :have_node
+  )
+  echo  Bundled npm is missing. Re-downloading complete Node.js...
+  echo.
+  rmdir /s /q "%~dp0runtime"
 )
 
 where node >nul 2>&1
