@@ -5,6 +5,45 @@ All data stays on your computer in a SQLite database — no accounts, no cloud, 
 
 ---
 
+## Getting the app
+
+1. Go to the GitHub page for this project
+2. Click the green **Code** button → **Download ZIP**
+3. Extract the ZIP anywhere you like (Desktop is fine)
+
+That's it — no Git required.
+
+---
+
+## Starting the app
+
+### Windows
+Double-click **`start.bat`**
+
+Node.js downloads automatically the first time (~35 MB, one-time). Subsequent launches are instant.
+
+### Mac
+Double-click **`start.command`** — or open Terminal in the folder and run:
+```
+sh start.sh
+```
+
+Node.js downloads automatically the first time (~40 MB, one-time). No Homebrew or manual installs needed.
+
+### Linux
+Open a terminal in the folder and run:
+```
+sh start.sh
+```
+
+Node.js downloads automatically the first time (~40 MB, one-time).
+
+---
+
+Your browser opens automatically when the app is ready. Leave the terminal/window open while using the app — closing it stops the server.
+
+---
+
 ## Features
 
 | Tab | What it does |
@@ -17,24 +56,6 @@ All data stays on your computer in a SQLite database — no accounts, no cloud, 
 | **Reports** | Printable income/expense summary for any date range |
 
 Automatic JSON backups are created daily and on every startup (`backups/` folder, last 60 kept).
-
----
-
-## Starting the app
-
-**Windows:** Double-click `start.bat`
-
-Everything installs automatically on the first launch — no setup required.
-
-**Mac / Linux:** Open a terminal in this folder and run:
-```
-sh start.sh
-```
-Node.js must be installed first on Mac/Linux: download from https://nodejs.org or run `brew install node`.
-
----
-
-Your browser will open automatically when the app is ready. Leave the terminal window open while using the app — closing it stops the server.
 
 ---
 
@@ -52,9 +73,9 @@ The JSON files in `backups/` contain all your data in plain text and can be used
 
 ## Troubleshooting
 
-**First launch takes a while** → Normal. It's downloading Node.js (~35 MB) and app dependencies once. Subsequent launches are instant.
+**First launch takes a while** → Normal. It's downloading Node.js and app dependencies once. Subsequent launches are instant.
 
-**"Download failed"** → Check your internet connection and double-click `start.bat` again.
+**"Download failed"** → Check your internet connection and try again.
 
 **"npm install failed"** → Check your internet connection and try again.
 
@@ -63,3 +84,5 @@ The JSON files in `backups/` contain all your data in plain text and can be used
 **Page won't load** → Make sure the terminal window is still open. Refresh the browser.
 
 **Port already in use** → Another program is using port 3000. Edit `server.js`, change `const PORT = 3000` to `3001` (or any free port), then browse to `http://localhost:3001`.
+
+**Mac: "cannot be opened because the developer cannot be verified"** → Right-click `start.command` → Open → Open anyway. This only appears once.
