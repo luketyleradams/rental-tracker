@@ -158,6 +158,7 @@ async function main() {
   }
 
   console.log(`  Update available: v${CURRENT} → v${latest}`);
+  process.stdout.write('  Downloading... ');
 
   // 2. Download zip to temp
   const tmpZip = path.join(os.tmpdir(), `rental-tracker-${Date.now()}.zip`);
