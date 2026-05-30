@@ -87,6 +87,52 @@ function copyDir(src, dst) {
   }
 }
 
+function downloadWithProgress(url, destPath, timeout = 120000) {
+  return new Promise((resolve, reject) => {
+    const mod = url.startsWith('https') ? https : http;
+    const req = mod.get(url, { timeout }, res => {
+      if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+        const loc = res.headers.location;
+        if (loc.startsWith('http://')) {
+          return reject(new Error('Redirected to insecure HTTP URL — aborting update'));
+        }
+        return downloadWithProgress(loc, destPath, timeout).then(resolve).catch(reject);
+      }
+      if (res.statusCode !== 200) return reject(new Error(`HTTP ${res.statusCode}`));
+
+      const total = parseInt(res.headers['content-length'], 10);
+      const BAR   = 24;
+      let received = 0;
+
+      const out = fs.createWriteStream(destPath);
+
+      res.on('data', chunk => {
+        received += chunk.length;
+        out.write(chunk);
+
+        if (total) {
+          const pct   = received / total;
+          const filled = Math.round(pct * BAR);
+          const bar   = '█'.repeat(filled) + '░'.repeat(BAR - filled);
+          process.stdout.write(`\r  Downloading... [${bar}] ${Math.round(pct * 100)}%`);
+        } else {
+          process.stdout.write(`\r  Downloading... ${(received / 1048576).toFixed(1)} MB`);
+        }
+      });
+
+      res.on('end', () => {
+        out.end(() => { process.stdout.write('\n'); resolve(); });
+      });
+
+      res.on('error', err => { out.destroy(); reject(err); });
+      out.on('error', reject);
+    });
+    req.on('timeout', () => { req.destroy(); reject(new Error('Request timed out')); });
+    req.on('error', reject);
+  });
+}
+
+
 function cleanup(...paths) {
   for (const p of paths) {
     try { fs.rmSync(p, { recursive: true, force: true }); } catch (_) {}
@@ -112,15 +158,13 @@ async function main() {
   }
 
   console.log(`  Update available: v${CURRENT} → v${latest}`);
-  console.log('  Downloading...');
 
   // 2. Download zip to temp
   const tmpZip = path.join(os.tmpdir(), `rental-tracker-${Date.now()}.zip`);
   const tmpDir = path.join(os.tmpdir(), `rental-tracker-${Date.now()}`);
 
   try {
-    const buf = await get(ZIP_URL);
-    fs.writeFileSync(tmpZip, buf);
+    await downloadWithProgress(ZIP_URL, tmpZip);
   } catch (e) {
     console.log(`  Download failed (${e.message}). Continuing with current version.`);
     process.exit(0);
