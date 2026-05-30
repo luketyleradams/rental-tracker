@@ -60,7 +60,7 @@ db.exec(`
     id       TEXT PRIMARY KEY,
     name     TEXT NOT NULL,
     role     TEXT NOT NULL DEFAULT '',
-    building TEXT NOT NULL DEFAULT 'both',
+    building TEXT NOT NULL DEFAULT '',
     pay      REAL NOT NULL CHECK(pay > 0),
     created  TEXT NOT NULL DEFAULT(strftime('%Y-%m-%dT%H:%M:%SZ','now'))
   );
@@ -108,6 +108,22 @@ db.exec(`
     created     TEXT NOT NULL DEFAULT(strftime('%Y-%m-%dT%H:%M:%SZ','now'))
   );
   CREATE INDEX IF NOT EXISTS idx_other_income_month ON other_income(month);
+
+  CREATE TABLE IF NOT EXISTS buildings (
+    name    TEXT PRIMARY KEY,
+    created TEXT NOT NULL DEFAULT(strftime('%Y-%m-%dT%H:%M:%SZ','now'))
+  );
+
+  CREATE TABLE IF NOT EXISTS hours_log (
+    id       TEXT PRIMARY KEY,
+    staff_id TEXT NOT NULL REFERENCES staff(id),
+    month    TEXT NOT NULL CHECK(month GLOB '????-??'),
+    date     TEXT NOT NULL,
+    hours    REAL NOT NULL CHECK(hours > 0),
+    note     TEXT NOT NULL DEFAULT '',
+    created  TEXT NOT NULL DEFAULT(strftime('%Y-%m-%dT%H:%M:%SZ','now'))
+  );
+  CREATE INDEX IF NOT EXISTS idx_hours_log_staff_month ON hours_log(staff_id, month);
 `);
 
 // ─── Migrations ───────────────────────────────────────────────────────────────
@@ -117,7 +133,11 @@ db.exec(`
   'ALTER TABLE rooms    ADD COLUMN late_fee_value REAL',
   'ALTER TABLE payments ADD COLUMN days_late INTEGER NOT NULL DEFAULT 0',
   'ALTER TABLE payments ADD COLUMN late_fee   REAL    NOT NULL DEFAULT 0',
-  'ALTER TABLE staff    ADD COLUMN deleted INTEGER NOT NULL DEFAULT 0',
+  'ALTER TABLE staff    ADD COLUMN deleted  INTEGER NOT NULL DEFAULT 0',
+  "ALTER TABLE staff    ADD COLUMN pay_type TEXT    NOT NULL DEFAULT 'salary'",
+  'ALTER TABLE expenses    ADD COLUMN hours     REAL',
+  'ALTER TABLE payments    ADD COLUMN period_id TEXT',
+  "ALTER TABLE adjustments ADD COLUMN status    TEXT NOT NULL DEFAULT 'active'",
 ].forEach(sql => { try { db.exec(sql); } catch (_) {} });
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -158,19 +178,6 @@ function proratedRent(period, month) {
 /**
  * Active occupancy period for a room in a given month, or null if vacant.
  */
-function activePeriod(roomId, month) {
-  const [y, m]   = month.split('-').map(Number);
-  const firstDay = new Date(Date.UTC(y, m - 1, 1));
-  const lastDay  = new Date(Date.UTC(y, m, 0));
-  return db.prepare('SELECT * FROM periods WHERE room_id=? ORDER BY start_date')
-    .all(roomId)
-    .find(p => {
-      const s = new Date(p.start_date);
-      const e = p.end_date ? new Date(p.end_date) : null;
-      return s <= lastDay && (!e || e >= firstDay);
-    }) ?? null;
-}
-
 /**
  * Running ledger balance for a room up through (and including) upToMonth.
  * Positive = credit (tenant overpaid). Negative = balance owed.
@@ -181,6 +188,13 @@ function activePeriod(roomId, month) {
  */
 function roomBalance(roomId, upToMonth) {
   const allPeriods = db.prepare('SELECT * FROM periods WHERE room_id=? ORDER BY start_date').all(roomId);
+
+  // Pre-aggregate payments by month once to avoid double-counting when two periods overlap the same month
+  const payByMonth = {};
+  db.prepare('SELECT month, COALESCE(SUM(amount),0) AS t FROM payments WHERE room_id=? GROUP BY month')
+    .all(roomId).forEach(r => { payByMonth[r.month] = r.t; });
+  const creditedMonths = new Set(); // months whose payments have already been added to balance
+
   let balance = 0;
 
   for (const period of allPeriods) {
@@ -196,9 +210,9 @@ function roomBalance(roomId, upToMonth) {
 
       const pro = proratedRent(period, mo);
       if (pro) {
-        const paid = db.prepare(
-          'SELECT COALESCE(SUM(amount),0) AS t FROM payments WHERE room_id=? AND month=?'
-        ).get(roomId, mo).t;
+        // Credit payments only once per month — if two periods share a month, the second period sees 0
+        const paid = creditedMonths.has(mo) ? 0 : (payByMonth[mo] || 0);
+        if (!creditedMonths.has(mo)) creditedMonths.add(mo);
 
         const forgiven = db.prepare(
           `SELECT COALESCE(SUM(amount),0) AS t FROM adjustments
@@ -207,20 +221,26 @@ function roomBalance(roomId, upToMonth) {
 
         const charged = db.prepare(
           `SELECT COALESCE(SUM(amount),0) AS t FROM adjustments
-           WHERE room_id=? AND period_id=? AND type='charge' AND substr(date,1,7)=?`
+           WHERE room_id=? AND period_id=? AND type='charge' AND status='active' AND substr(date,1,7)=?`
         ).get(roomId, period.id, mo).t;
 
-        balance = balance + paid + forgiven - charged - pro.prorated;
+        // Refunds reduce the tenant's credit (landlord pays cash back)
+        const refunded = db.prepare(
+          `SELECT COALESCE(SUM(amount),0) AS t FROM adjustments
+           WHERE room_id=? AND period_id=? AND type='refund' AND substr(date,1,7)=?`
+        ).get(roomId, period.id, mo).t;
+
+        balance = balance + paid + forgiven - charged - refunded - pro.prorated;
       }
 
       if (++m > 12) { m = 1; y++; }
     }
 
-    // Write-offs close the owed balance
+    // Write-offs close the owed balance — bounded to upToMonth so historical queries stay accurate
     const writeoffs = db.prepare(
       `SELECT COALESCE(SUM(amount),0) AS t FROM adjustments
-       WHERE room_id=? AND period_id=? AND type='writeoff'`
-    ).get(roomId, period.id).t;
+       WHERE room_id=? AND period_id=? AND type='writeoff' AND substr(date,1,7)<=?`
+    ).get(roomId, period.id, upToMonth).t;
     balance += writeoffs;
   }
 
@@ -314,6 +334,71 @@ function conflict(res, msg)  { res.status(409).json({ error: msg }); }
 
 // ─── ROOMS ────────────────────────────────────────────────────────────────────
 
+// ─── HOURS LOG ────────────────────────────────────────────────────────────────
+
+app.get('/api/hours-log', h((req, res) => {
+  const { staff_id, month } = req.query;
+  if (!staff_id || !month) return badReq(res, 'staff_id and month required');
+  res.json(db.prepare('SELECT * FROM hours_log WHERE staff_id=? AND month=? ORDER BY date, created').all(staff_id, month));
+}));
+
+app.post('/api/hours-log', h((req, res) => {
+  const { staff_id, month, date, hours, note } = req.body;
+  if (!staff_id || !month || !date || !(hours > 0)) return badReq(res, 'staff_id, month, date, hours (>0) required');
+  const s = db.prepare('SELECT * FROM staff WHERE id=?').get(staff_id);
+  if (!s) return notFound(res, 'Staff member');
+  if (s.pay_type !== 'hourly') return badReq(res, 'Hours log is only for hourly staff');
+  const id = uid();
+  db.prepare('INSERT INTO hours_log (id,staff_id,month,date,hours,note) VALUES (?,?,?,?,?,?)').run(id, staff_id, month, date, hours, note || '');
+  res.status(201).json(db.prepare('SELECT * FROM hours_log WHERE id=?').get(id));
+}));
+
+app.patch('/api/hours-log/:id', h((req, res) => {
+  const entry = db.prepare('SELECT * FROM hours_log WHERE id=?').get(req.params.id);
+  if (!entry) return notFound(res, 'Hours entry');
+  const { date, hours, note } = req.body;
+  if (date !== undefined && !date) return badReq(res, 'date cannot be empty');
+  if (hours !== undefined && !(hours > 0)) return badReq(res, 'hours must be > 0');
+  db.prepare('UPDATE hours_log SET date=?,hours=?,note=? WHERE id=?')
+    .run(date ?? entry.date, hours ?? entry.hours, note ?? entry.note, req.params.id);
+  res.json(db.prepare('SELECT * FROM hours_log WHERE id=?').get(req.params.id));
+}));
+
+app.delete('/api/hours-log/:id', h((req, res) => {
+  const info = db.prepare('DELETE FROM hours_log WHERE id=?').run(req.params.id);
+  if (!info.changes) return notFound(res, 'Hours entry');
+  res.json({ ok: true });
+}));
+
+// ─── BUILDINGS ────────────────────────────────────────────────────────────────
+
+app.get('/api/buildings', h((req, res) => {
+  const fromRooms = db.prepare('SELECT DISTINCT building AS name FROM rooms ORDER BY building').all().map(r => r.name);
+  const stored    = db.prepare('SELECT name FROM buildings ORDER BY name').all().map(r => r.name);
+  const all = [...new Set([...stored, ...fromRooms])].sort();
+  res.json(all);
+}));
+
+app.post('/api/buildings', h((req, res) => {
+  const { name } = req.body;
+  if (!name || !name.trim()) return badReq(res, 'name required');
+  const n = name.trim();
+  try {
+    db.prepare('INSERT INTO buildings (name) VALUES (?)').run(n);
+  } catch (_) {
+    return conflict(res, `${n} already exists`);
+  }
+  res.status(201).json({ name: n });
+}));
+
+app.delete('/api/buildings/:name', h((req, res) => {
+  const name = decodeURIComponent(req.params.name);
+  const inUse = db.prepare('SELECT 1 FROM rooms WHERE building=? LIMIT 1').get(name);
+  if (inUse) return conflict(res, `Cannot remove — rooms exist in ${name}`);
+  db.prepare('DELETE FROM buildings WHERE name=?').run(name);
+  res.json({ ok: true });
+}));
+
 app.get('/api/rooms', h((req, res) => {
   const rooms   = db.prepare('SELECT * FROM rooms ORDER BY building, number').all();
   const periods = db.prepare('SELECT * FROM periods ORDER BY start_date').all();
@@ -374,7 +459,7 @@ app.post('/api/rooms/:roomId/periods', h((req, res) => {
   res.status(201).json(db.prepare('SELECT * FROM periods WHERE id=?').get(id));
 }));
 
-// Move-out: sets end_date, returns updated period + final balance
+// Move-out: sets end_date, auto-writes off any outstanding balance as bad debt
 app.patch('/api/periods/:id/moveout', h((req, res) => {
   const { end_date } = req.body;
   if (!end_date) return badReq(res, 'end_date required');
@@ -384,10 +469,27 @@ app.patch('/api/periods/:id/moveout', h((req, res) => {
   if (period.end_date)  return conflict(res, 'Period already closed');
   if (end_date < period.start_date) return badReq(res, 'end_date cannot be before start_date');
 
-  db.prepare('UPDATE periods SET end_date=? WHERE id=?').run(end_date, req.params.id);
-  const updated = db.prepare('SELECT * FROM periods WHERE id=?').get(req.params.id);
-  const balance = roomBalance(period.room_id, end_date.slice(0, 7));
-  res.json({ period: updated, balance });
+  const result = db.transaction(() => {
+    db.prepare('UPDATE periods SET end_date=? WHERE id=?').run(end_date, req.params.id);
+    const updated = db.prepare('SELECT * FROM periods WHERE id=?').get(req.params.id);
+    const balance = roomBalance(period.room_id, end_date.slice(0, 7));
+
+    if (balance < -0.005) {
+      const room = db.prepare('SELECT * FROM rooms WHERE id=?').get(period.room_id);
+      const amount = round2(-balance);
+      const mo = end_date.slice(0, 7);
+      db.prepare(
+        'INSERT INTO adjustments (id,room_id,period_id,type,amount,note,date) VALUES (?,?,?,?,?,?,?)'
+      ).run(uid(), period.room_id, period.id, 'writeoff', amount, 'Auto write-off at move-out', end_date);
+      db.prepare(
+        'INSERT INTO expenses (id,building,category,month,amount,description) VALUES (?,?,?,?,?,?)'
+      ).run(uid(), room.building, 'writeoff', mo, amount, `Bad debt write-off — Rm ${room.number}`);
+    }
+
+    return { period: updated, balance };
+  })();
+
+  res.json(result);
 }));
 
 app.patch('/api/periods/:id', h((req, res) => {
@@ -422,11 +524,32 @@ app.get('/api/rooms/:id/balance', h((req, res) => {
 app.get('/api/rooms/:id/preview', h((req, res) => {
   const { month, days_late } = req.query;
   if (!month) return badReq(res, 'month required');
-  const room   = db.prepare('SELECT * FROM rooms WHERE id=?').get(req.params.id);
+  const room = db.prepare('SELECT * FROM rooms WHERE id=?').get(req.params.id);
   if (!room) return notFound(res, 'Room');
-  const period = activePeriod(req.params.id, month);
-  if (!period) return res.json({ vacant: true });
-  const pro   = proratedRent(period, month);
+
+  // All periods that overlap this month (handles move-out + move-in same month)
+  const [y, m] = month.split('-').map(Number);
+  const firstDay = new Date(Date.UTC(y, m - 1, 1));
+  const lastDay  = new Date(Date.UTC(y, m, 0));
+  const allPeriods = db.prepare('SELECT * FROM periods WHERE room_id=? ORDER BY start_date').all(req.params.id);
+  const overlapping = allPeriods
+    .filter(p => {
+      const s = new Date(p.start_date);
+      const e = p.end_date ? new Date(p.end_date) : null;
+      return s <= lastDay && (!e || e >= firstDay);
+    })
+    .map(p => {
+      const pro = proratedRent(p, month);
+      const paidForPeriod = db.prepare(
+        'SELECT COALESCE(SUM(amount),0) AS t FROM payments WHERE room_id=? AND month=? AND period_id=?'
+      ).get(req.params.id, month, p.id).t;
+      return { period: p, pro, paidForPeriod };
+    })
+    .filter(x => x.pro);
+
+  if (!overlapping.length) return res.json({ vacant: true });
+
+  const totalProrated = round2(overlapping.reduce((s, x) => s + x.pro.prorated, 0));
   const carry = roomBalance(req.params.id, prevMonth(month));
   const paid  = db.prepare('SELECT COALESCE(SUM(amount),0) AS t FROM payments WHERE room_id=? AND month=?').get(req.params.id, month).t;
 
@@ -435,12 +558,18 @@ app.get('/api/rooms/:id/preview', h((req, res) => {
   if (daysLate > 0 && room.late_fee_type && room.late_fee_value > 0) {
     lateFee = room.late_fee_type === 'fixed'
       ? round2(daysLate * room.late_fee_value)
-      : round2(daysLate * (room.late_fee_value / 100) * room.base_rent);
+      : round2(daysLate * (room.late_fee_value / 100) * totalProrated);
   }
 
+  const multiTenant = overlapping.length > 1;
+  // pro: combined summary (single-tenant shape preserved for compat)
+  const pro = multiTenant
+    ? { prorated: totalProrated, fullMonth: false, multiTenant: true }
+    : overlapping[0].pro;
+
   res.json({
-    period, pro, carry, paid,
-    due: round2(pro.prorated - carry),
+    periods: overlapping, pro, carry, paid,
+    due: round2(totalProrated - carry),
     lateFee, daysLate,
     lateFeeType: room.late_fee_type, lateFeeValue: room.late_fee_value,
   });
@@ -460,14 +589,14 @@ app.get('/api/payments', h((req, res) => {
 }));
 
 app.post('/api/payments', h((req, res) => {
-  const { room_id, month, amount, notes, days_late, late_fee } = req.body;
+  const { room_id, month, amount, notes, days_late, late_fee, period_id } = req.body;
   if (!room_id || !month || !(amount > 0)) return badReq(res, 'room_id, month, amount (>0) required');
   if (!db.prepare('SELECT id FROM rooms WHERE id=?').get(room_id)) return notFound(res, 'Room');
   const daysLate = Math.max(0, parseInt(days_late) || 0);
   const lateFee  = round2(Math.max(0, parseFloat(late_fee) || 0));
   const id = uid();
-  db.prepare('INSERT INTO payments (id,room_id,month,amount,notes,days_late,late_fee) VALUES (?,?,?,?,?,?,?)')
-    .run(id, room_id, month, amount, notes || '', daysLate, lateFee);
+  db.prepare('INSERT INTO payments (id,room_id,month,amount,notes,days_late,late_fee,period_id) VALUES (?,?,?,?,?,?,?,?)')
+    .run(id, room_id, month, amount, notes || '', daysLate, lateFee, period_id || null);
   res.status(201).json(db.prepare('SELECT * FROM payments WHERE id=?').get(id));
 }));
 
@@ -484,20 +613,22 @@ app.get('/api/staff', h((req, res) => {
 }));
 
 app.post('/api/staff', h((req, res) => {
-  const { name, role, building, pay } = req.body;
+  const { name, role, building, pay, pay_type } = req.body;
   if (!name?.trim() || !(pay > 0)) return badReq(res, 'name and pay (>0) required');
+  const type = pay_type === 'hourly' ? 'hourly' : 'salary';
   const id = uid();
-  db.prepare('INSERT INTO staff (id,name,role,building,pay) VALUES (?,?,?,?,?)')
-    .run(id, name.trim(), role || '', building || 'both', pay);
+  db.prepare('INSERT INTO staff (id,name,role,building,pay,pay_type) VALUES (?,?,?,?,?,?)')
+    .run(id, name.trim(), role || '', building || '', pay, type);
   res.status(201).json(db.prepare('SELECT * FROM staff WHERE id=?').get(id));
 }));
 
 app.patch('/api/staff/:id', h((req, res) => {
   const s = db.prepare('SELECT * FROM staff WHERE id=?').get(req.params.id);
   if (!s) return notFound(res, 'Staff member');
-  const { name, role, building, pay } = req.body;
-  db.prepare('UPDATE staff SET name=?,role=?,building=?,pay=? WHERE id=?')
-    .run(name ?? s.name, role ?? s.role, building ?? s.building, pay ?? s.pay, req.params.id);
+  const { name, role, building, pay, pay_type } = req.body;
+  const type = pay_type != null ? (pay_type === 'hourly' ? 'hourly' : 'salary') : s.pay_type;
+  db.prepare('UPDATE staff SET name=?,role=?,building=?,pay=?,pay_type=? WHERE id=?')
+    .run(name ?? s.name, role ?? s.role, building ?? s.building, pay ?? s.pay, type, req.params.id);
   res.json(db.prepare('SELECT * FROM staff WHERE id=?').get(req.params.id));
 }));
 
@@ -523,7 +654,8 @@ app.get('/api/expenses', h((req, res) => {
               FROM expenses e LEFT JOIN staff s ON s.id=e.staff_id WHERE 1=1`;
   const args = [];
   if (building && building !== 'all') {
-    sql += " AND (e.building=? OR e.building='both')"; args.push(building);
+    sql += " AND (e.building='both' OR (',' || e.building || ',') LIKE ('%,' || ? || ',%'))";
+    args.push(building);
   }
   if (month)    { sql += ' AND e.month=?';    args.push(month); }
   if (category) { sql += ' AND e.category=?'; args.push(category); }
@@ -551,6 +683,28 @@ app.post('/api/expenses', h((req, res) => {
   ).get(id));
 }));
 
+app.patch('/api/expenses/:id', h((req, res) => {
+  const { building, category, month, amount, miles, description } = req.body;
+  const exp = db.prepare('SELECT * FROM expenses WHERE id=?').get(req.params.id);
+  if (!exp) return notFound(res, 'Expense');
+  if (exp.staff_id) {
+    // Salary expenses: only amount is editable
+    if (!(amount > 0)) return badReq(res, 'amount (>0) required');
+    db.prepare('UPDATE expenses SET amount=? WHERE id=?').run(round2(amount), req.params.id);
+    return res.json(db.prepare('SELECT * FROM expenses WHERE id=?').get(req.params.id));
+  }
+  const newCat = category ?? exp.category;
+  if (!VALID_CATS.has(newCat)) return badReq(res, `Invalid category`);
+  const newMiles = miles != null ? miles : exp.miles;
+  const newAmount = (newCat === 'miles' && newMiles > 0)
+    ? round2(newMiles * MILEAGE_RATE)
+    : (amount != null ? amount : exp.amount);
+  db.prepare(
+    'UPDATE expenses SET building=?,category=?,month=?,amount=?,miles=?,description=? WHERE id=?'
+  ).run(building ?? exp.building, newCat, month ?? exp.month, newAmount, newMiles, description ?? exp.description, req.params.id);
+  res.json(db.prepare('SELECT * FROM expenses WHERE id=?').get(req.params.id));
+}));
+
 app.delete('/api/expenses/:id', h((req, res) => {
   const info = db.prepare('DELETE FROM expenses WHERE id=?').run(req.params.id);
   if (!info.changes) return notFound(res, 'Expense');
@@ -559,40 +713,56 @@ app.delete('/api/expenses/:id', h((req, res) => {
 
 // Pay a single staff member
 app.post('/api/salaries/pay-one', h((req, res) => {
-  const { staff_id, month, amount } = req.body;
+  const { staff_id, month, amount, hours } = req.body;
   if (!staff_id || !month) return badReq(res, 'staff_id and month required');
   const s = db.prepare('SELECT * FROM staff WHERE id=?').get(staff_id);
   if (!s) return notFound(res, 'Staff member');
-  const already = db.prepare(
-    "SELECT id FROM expenses WHERE category='salaries' AND month=? AND staff_id=?"
-  ).get(month, staff_id);
-  if (already) return conflict(res, `${s.name} is already paid for ${month}`);
-  const pay = (amount && amount > 0) ? amount : s.pay;
-  const id  = uid();
+
+  let pay, hoursVal = null;
+  if (s.pay_type === 'hourly') {
+    if (!(amount > 0)) return badReq(res, 'amount (>0) required');
+    hoursVal = hours > 0 ? hours : null;
+    pay = amount;
+  } else {
+    const totalPaid = db.prepare(
+      "SELECT COALESCE(SUM(amount),0) AS t FROM expenses WHERE category='salaries' AND month=? AND staff_id=?"
+    ).get(month, staff_id).t;
+    const remaining = round2(s.pay - totalPaid);
+    if (remaining <= 0.005) return conflict(res, `${s.name} is already fully paid for ${month}`);
+    pay = (amount && amount > 0) ? Math.min(amount, remaining) : remaining;
+  }
+
+  const id = uid();
   db.prepare(
-    'INSERT INTO expenses (id,building,category,month,amount,description,staff_id) VALUES (?,?,?,?,?,?,?)'
-  ).run(id, s.building, 'salaries', month, pay, `${s.name} — ${s.role}`, staff_id);
+    'INSERT INTO expenses (id,building,category,month,amount,hours,description,staff_id) VALUES (?,?,?,?,?,?,?,?)'
+  ).run(id, s.building, 'salaries', month, pay, hoursVal, `${s.name} — ${s.role}`, staff_id);
   res.status(201).json(db.prepare('SELECT * FROM expenses WHERE id=?').get(id));
 }));
 
-// Pay all unpaid staff in one transaction
+// Pay all unpaid/partial staff in one transaction
 app.post('/api/salaries/pay-all', h((req, res) => {
   const { month } = req.body;
   if (!month) return badReq(res, 'month required');
   const allStaff = db.prepare('SELECT * FROM staff ORDER BY name').all();
-  const paidIds  = db.prepare(
-    "SELECT staff_id FROM expenses WHERE category='salaries' AND month=? AND staff_id IS NOT NULL"
-  ).all(month).map(r => r.staff_id);
-  const unpaid = allStaff.filter(s => !paidIds.includes(s.id));
-  if (!unpaid.length) return conflict(res, 'All staff already paid for this month');
+  const paidExpenses = db.prepare(
+    "SELECT staff_id, SUM(amount) AS paid FROM expenses WHERE category='salaries' AND month=? AND staff_id IS NOT NULL GROUP BY staff_id"
+  ).all(month);
+  const paidMap = {};
+  paidExpenses.forEach(r => { paidMap[r.staff_id] = r.paid; });
+  // Only salary staff (hourly have no fixed amount — must be paid individually)
+  const needsPay = allStaff
+    .filter(s => s.pay_type !== 'hourly')
+    .map(s => ({ ...s, remaining: round2(s.pay - (paidMap[s.id] || 0)) }))
+    .filter(s => s.remaining > 0.005);
+  if (!needsPay.length) return conflict(res, 'All staff already paid for this month');
 
   const insert = db.prepare(
     'INSERT INTO expenses (id,building,category,month,amount,description,staff_id) VALUES (?,?,?,?,?,?,?)'
   );
   const created = db.transaction(() =>
-    unpaid.map(s => {
+    needsPay.map(s => {
       const id = uid();
-      insert.run(id, s.building, 'salaries', month, s.pay, `${s.name} — ${s.role}`, s.id);
+      insert.run(id, s.building, 'salaries', month, s.remaining, `${s.name} — ${s.role}`, s.id);
       return db.prepare('SELECT * FROM expenses WHERE id=?').get(id);
     })
   )();
@@ -604,28 +774,47 @@ app.get('/api/salaries/status', h((req, res) => {
   const { month } = req.query;
   if (!month) return badReq(res, 'month required');
   const activeStaff = db.prepare('SELECT * FROM staff WHERE deleted=0 ORDER BY name').all();
-  const paidExpenses= db.prepare(
-    "SELECT * FROM expenses WHERE category='salaries' AND month=? AND staff_id IS NOT NULL"
+  const paidExpenses = db.prepare(
+    "SELECT * FROM expenses WHERE category='salaries' AND month=? AND staff_id IS NOT NULL ORDER BY created"
   ).all(month);
   const paidMap = {};
-  paidExpenses.forEach(e => { paidMap[e.staff_id] = e; });
-  // Include deleted staff only if they have a paid expense this month
+  paidExpenses.forEach(e => {
+    if (!paidMap[e.staff_id]) paidMap[e.staff_id] = { expenses: [], total: 0 };
+    paidMap[e.staff_id].expenses.push(e);
+    paidMap[e.staff_id].total = round2(paidMap[e.staff_id].total + e.amount);
+  });
+  // Include deleted staff only if they have a paid expense this month (GROUP BY prevents duplicates from multiple expenses)
   const deletedWithPay = db.prepare(
-    "SELECT s.* FROM staff s INNER JOIN expenses e ON e.staff_id=s.id WHERE s.deleted=1 AND e.category='salaries' AND e.month=? ORDER BY s.name"
+    "SELECT s.* FROM staff s WHERE s.deleted=1 AND EXISTS (SELECT 1 FROM expenses e WHERE e.staff_id=s.id AND e.category='salaries' AND e.month=?) ORDER BY s.name"
   ).all(month);
+  // Hours log totals for hourly staff
+  const hoursRows = db.prepare(
+    'SELECT staff_id, SUM(hours) AS total_hours FROM hours_log WHERE month=? GROUP BY staff_id'
+  ).all(month);
+  const hoursMap = {};
+  hoursRows.forEach(r => { hoursMap[r.staff_id] = r.total_hours; });
+
   const allStaff = [...activeStaff, ...deletedWithPay.filter(d => !activeStaff.find(a => a.id===d.id))];
-  res.json(allStaff.map(s => ({ ...s, paid_expense: paidMap[s.id] || null })));
+  res.json(allStaff.map(s => ({
+    ...s,
+    paid_expense: paidMap[s.id] ? paidMap[s.id].expenses[0] : null,
+    paid_total: paidMap[s.id] ? paidMap[s.id].total : 0,
+    paid_expenses: paidMap[s.id] ? paidMap[s.id].expenses : [],
+    logged_hours: hoursMap[s.id] || 0,
+  })));
 }));
 
 // ─── ADJUSTMENTS ──────────────────────────────────────────────────────────────
 
 app.get('/api/adjustments', h((req, res) => {
-  const { room_id, month } = req.query;
+  const { room_id, month, type, status } = req.query;
   let sql  = `SELECT a.*, r.building, r.number
               FROM adjustments a JOIN rooms r ON r.id=a.room_id WHERE 1=1`;
   const args = [];
-  if (room_id) { sql += ' AND a.room_id=?';           args.push(room_id); }
-  if (month)   { sql += " AND substr(a.date,1,7)=?";  args.push(month); }
+  if (room_id) { sql += ' AND a.room_id=?';          args.push(room_id); }
+  if (month)   { sql += ' AND substr(a.date,1,7)=?'; args.push(month); }
+  if (type)    { sql += ' AND a.type=?';             args.push(type); }
+  if (status)  { sql += ' AND a.status=?';           args.push(status); }
   sql += ' ORDER BY a.date DESC, a.created DESC';
   res.json(db.prepare(sql).all(...args));
 }));
@@ -643,7 +832,7 @@ app.post('/api/adjustments', h((req, res) => {
     ).run(id, room_id, period_id, type, amount, note || '', date);
 
     const room = db.prepare('SELECT * FROM rooms WHERE id=?').get(room_id);
-    const bld  = room?.building || 'both';
+    const bld  = room?.building || '';
     const rmNo = room?.number || '?';
     const mo   = date.slice(0, 7);
     const desc_note = note ? `: ${note}` : '';
@@ -668,10 +857,16 @@ app.post('/api/adjustments', h((req, res) => {
 }));
 
 app.patch('/api/adjustments/:id', h((req, res) => {
-  const { amount, note } = req.body;
-  if (!(amount > 0)) return badReq(res, 'amount required');
-  const info = db.prepare('UPDATE adjustments SET amount=?, note=? WHERE id=?').run(amount, note || '', req.params.id);
-  if (!info.changes) return notFound(res, 'Adjustment');
+  const adj = db.prepare('SELECT * FROM adjustments WHERE id=?').get(req.params.id);
+  if (!adj) return notFound(res, 'Adjustment');
+  const { amount, note, status } = req.body;
+  if (status !== undefined) {
+    if (!['active','forgiven'].includes(status)) return badReq(res, 'status must be active or forgiven');
+    db.prepare('UPDATE adjustments SET status=? WHERE id=?').run(status, req.params.id);
+  } else {
+    if (!(amount > 0)) return badReq(res, 'amount required');
+    db.prepare('UPDATE adjustments SET amount=?, note=? WHERE id=?').run(amount, note ?? adj.note, req.params.id);
+  }
   res.json(db.prepare('SELECT * FROM adjustments WHERE id=?').get(req.params.id));
 }));
 
@@ -690,7 +885,7 @@ app.get('/api/other-income', h((req, res) => {
   let sql = 'SELECT * FROM other_income WHERE 1=1';
   const args = [];
   if (month)    { sql += ' AND month=?';    args.push(month); }
-  if (building && building !== 'all') { sql += ' AND (building=? OR building=\'both\')'; args.push(building); }
+  if (building && building !== 'all') { sql += " AND (building='both' OR (',' || building || ',') LIKE ('%,' || ? || ',%'))"; args.push(building); }
   sql += ' ORDER BY created DESC';
   res.json(db.prepare(sql).all(...args));
 }));
@@ -744,44 +939,68 @@ app.get('/api/dashboard/:month', h((req, res) => {
   const lom = new Date(Date.UTC(y, mo, 0));
 
   const roomStatus = rooms.map(room => {
-    const period = periods.find(p => {
+    // All periods overlapping this month
+    const overlapping = periods.filter(p => {
       if (p.room_id !== room.id) return false;
       const s = new Date(p.start_date), e = p.end_date ? new Date(p.end_date) : null;
       return s <= lom && (!e || e >= fom);
     });
 
-    if (!period) {
+    if (!overlapping.length) {
       const lastPeriod = periods.filter(p => p.room_id === room.id)
         .sort((a, b) => b.start_date.localeCompare(a.start_date))[0];
       const openBal = lastPeriod ? roomBalance(room.id, pm) : 0;
       return {
         room_id: room.id, building: room.building, number: room.number,
         base_rent: room.base_rent, status: 'vacant',
-        period: null, pro: null, carry: 0, paid: 0, due: 0, diff: 0,
+        period: null, periods: [], pro: null, carry: 0, paid: 0, due: 0, diff: 0,
         arrears: openBal < -0.005 ? round2(-openBal) : 0,
-        last_period_id: lastPeriod?.id ?? null
+        last_period_id: lastPeriod?.id ?? null,
+        last_period_end_date: lastPeriod?.end_date ?? null
       };
     }
 
-    const pro       = proratedRent(period, month);
-    const carry     = roomBalance(room.id, pm);
-    const paid      = db.prepare('SELECT COALESCE(SUM(amount),0) AS t FROM payments WHERE room_id=? AND month=?').get(room.id, month).t;
-    const forgiven  = db.prepare(`SELECT COALESCE(SUM(amount),0) AS t FROM adjustments WHERE room_id=? AND period_id=? AND type='forgiven' AND substr(date,1,7)=?`).get(room.id, period.id, month).t;
-    const charged   = db.prepare(`SELECT COALESCE(SUM(amount),0) AS t FROM adjustments WHERE room_id=? AND period_id=? AND type='charge' AND substr(date,1,7)=?`).get(room.id, period.id, month).t;
-    const writeoff  = db.prepare(`SELECT COALESCE(SUM(amount),0) AS t FROM adjustments WHERE room_id=? AND period_id=? AND type='writeoff' AND substr(date,1,7)=?`).get(room.id, period.id, month).t;
-    const due       = round2(pro.prorated - carry);
-    const effective = round2(paid + forgiven + writeoff - charged);
-    const diff      = round2(effective - due);
+    // Per-period detail: prorated rent, adjustments, per-period paid (via period_id)
+    const periodDetails = overlapping.map(p => {
+      const pro = proratedRent(p, month);
+      if (!pro) return null;
+      const forgiven  = db.prepare(`SELECT COALESCE(SUM(amount),0) AS t FROM adjustments WHERE room_id=? AND period_id=? AND type='forgiven' AND substr(date,1,7)=?`).get(room.id, p.id, month).t;
+      const charged   = db.prepare(`SELECT COALESCE(SUM(amount),0) AS t FROM adjustments WHERE room_id=? AND period_id=? AND type='charge' AND status='active' AND substr(date,1,7)=?`).get(room.id, p.id, month).t;
+      const writeoff  = db.prepare(`SELECT COALESCE(SUM(amount),0) AS t FROM adjustments WHERE room_id=? AND period_id=? AND type='writeoff'  AND substr(date,1,7)=?`).get(room.id, p.id, month).t;
+      const refunded  = db.prepare(`SELECT COALESCE(SUM(amount),0) AS t FROM adjustments WHERE room_id=? AND period_id=? AND type='refund'    AND substr(date,1,7)=?`).get(room.id, p.id, month).t;
+      const paidForPeriod = db.prepare(`SELECT COALESCE(SUM(amount),0) AS t FROM payments WHERE room_id=? AND month=? AND period_id=?`).get(room.id, month, p.id).t;
+      return { period: p, pro, forgiven, charged, writeoff, refunded, paidForPeriod };
+    }).filter(Boolean);
 
-    const status = effective === 0 && due > 0.005 ? 'unpaid'
+    const totalProrated = round2(periodDetails.reduce((s, x) => s + x.pro.prorated, 0));
+    const totalForgiven = round2(periodDetails.reduce((s, x) => s + x.forgiven, 0));
+    const totalCharged  = round2(periodDetails.reduce((s, x) => s + x.charged, 0));
+    const totalWriteoff = round2(periodDetails.reduce((s, x) => s + x.writeoff, 0));
+    const totalRefunded = round2(periodDetails.reduce((s, x) => s + x.refunded, 0));
+
+    const carry = roomBalance(room.id, pm);
+    const paid  = db.prepare('SELECT COALESCE(SUM(amount),0) AS t FROM payments WHERE room_id=? AND month=?').get(room.id, month).t;
+
+    // due = net obligation: rent + charges − forgiven − writeoffs − refunds issued this month − carry credit
+    // This makes "Total Due" meaningful: if due=$1100 and paid=$900, "Short $200" makes sense.
+    const due  = round2(totalProrated - carry + totalCharged - totalForgiven - totalWriteoff - totalRefunded);
+    const diff = round2(paid - due);
+
+    const status = paid < 0.005 && due > 0.005 ? 'unpaid'
       : Math.abs(diff) < 0.01 ? 'paid'
       : diff > 0.005           ? 'overpaid'
       :                          'short';
 
+    const multiTenant = periodDetails.length > 1;
+    const pro = multiTenant
+      ? { prorated: totalProrated, fullMonth: false, multiTenant: true }
+      : periodDetails[0].pro;
+
     return {
       room_id: room.id, building: room.building, number: room.number,
-      base_rent: room.base_rent, status, period, pro, carry, paid, due, diff,
-      forgiven, charged, writeoff,
+      base_rent: room.base_rent, status,
+      period: overlapping[0], periods: periodDetails, pro, carry, paid, due, diff,
+      forgiven: totalForgiven, charged: totalCharged, writeoff: totalWriteoff,
       arrears: 0, last_period_id: null
     };
   });
@@ -828,13 +1047,13 @@ app.get('/api/report', h((req, res) => {
   if (bldFilter) { paySQL += ` AND r.building IN (${bldFilter.map(() => '?').join(',')})`; payArgs.push(...bldFilter); }
   const payments = db.prepare(paySQL).all(...payArgs);
 
-  // Expenses (both + selected buildings)
   let expSQL  = `SELECT e.*, s.name AS staff_name
                  FROM expenses e LEFT JOIN staff s ON s.id=e.staff_id
                  WHERE e.month>=? AND e.month<=?`;
   const expArgs = [from, to];
   if (bldFilter) {
-    expSQL += ` AND (e.building='both' OR e.building IN (${bldFilter.map(() => '?').join(',')}))`;
+    const expBldClauses = bldFilter.map(() => "(',' || e.building || ',') LIKE ('%,' || ? || ',%')").join(' OR ');
+    expSQL += ` AND (e.building='both' OR ${expBldClauses})`;
     expArgs.push(...bldFilter);
   }
   const expenses = db.prepare(expSQL).all(...expArgs);
@@ -851,23 +1070,33 @@ app.get('/api/report', h((req, res) => {
   const roomSummary = allRooms.map(room => {
     let due = 0, paid = 0;
     months.forEach(m => {
-      const p = allPeriods.find(p2 => {
-        if (p2.room_id !== room.id) return false;
-        const [y2, m2] = m.split('-').map(Number);
-        const fom2 = new Date(Date.UTC(y2, m2-1, 1)), lom2 = new Date(Date.UTC(y2, m2, 0));
-        const s = new Date(p2.start_date), e = p2.end_date ? new Date(p2.end_date) : null;
-        return s <= lom2 && (!e || e >= fom2);
-      });
-      if (p) { const pro = proratedRent(p, m); if (pro) due += pro.prorated; }
+      const [y2, m2] = m.split('-').map(Number);
+      const fom2 = new Date(Date.UTC(y2, m2-1, 1)), lom2 = new Date(Date.UTC(y2, m2, 0));
+      // All periods overlapping this month — handles two tenants in the same month
+      allPeriods
+        .filter(p2 => {
+          if (p2.room_id !== room.id) return false;
+          const s = new Date(p2.start_date), e = p2.end_date ? new Date(p2.end_date) : null;
+          return s <= lom2 && (!e || e >= fom2);
+        })
+        .forEach(p => { const pro = proratedRent(p, m); if (pro) due += pro.prorated; });
       paid += payments.filter(py => py.room_id === room.id && py.month === m).reduce((s, x) => s + x.amount, 0);
     });
-    const forgiven = allAdj.filter(a => a.room_id === room.id && a.type === 'forgiven').reduce((s, a) => s + a.amount, 0);
+    const forgiven  = allAdj.filter(a => a.room_id === room.id && a.type === 'forgiven').reduce((s, a) => s + a.amount, 0);
+    const writeoffs = allAdj.filter(a => a.room_id === room.id && a.type === 'writeoff').reduce((s, a) => s + a.amount, 0);
+    const charged   = allAdj.filter(a => a.room_id === room.id && a.type === 'charge' && a.status !== 'forgiven').reduce((s, a) => s + a.amount, 0);
+    const refunds   = allAdj.filter(a => a.room_id === room.id && a.type === 'refund').reduce((s, a) => s + a.amount, 0);
+    // totalDue = net obligation: rent + charges − forgiven − writeoffs − refunds
+    // Matches dashboard logic so report and ledger always agree
+    const netDue = round2(due + charged - forgiven - writeoffs - refunds);
     return {
       ...room,
-      totalDue:     round2(due),
+      totalDue:     netDue,
       totalPaid:    round2(paid),
       totalForgiven:round2(forgiven),
-      diff:         round2(paid + forgiven - due)
+      totalWriteoff:round2(writeoffs),
+      totalCharged: round2(charged),
+      diff:         round2(paid - netDue)
     };
   });
 
@@ -878,7 +1107,11 @@ app.get('/api/report', h((req, res) => {
   // Other income
   let otherIncSQL = 'SELECT * FROM other_income WHERE month>=? AND month<=?';
   const otherIncArgs = [from, to];
-  if (bldFilter) { otherIncSQL += ` AND (building='both' OR building IN (${bldFilter.map(()=>'?').join(',')}))`; otherIncArgs.push(...bldFilter); }
+  if (bldFilter) {
+    const oiBldClauses = bldFilter.map(() => "(',' || building || ',') LIKE ('%,' || ? || ',%')").join(' OR ');
+    otherIncSQL += ` AND (building='both' OR ${oiBldClauses})`;
+    otherIncArgs.push(...bldFilter);
+  }
   const otherIncomeRows = db.prepare(otherIncSQL).all(...otherIncArgs);
 
   const rentTotal     = round2(payments.reduce((s, p) => s + p.amount, 0));
@@ -887,17 +1120,35 @@ app.get('/api/report', h((req, res) => {
   const totalExpenses = round2(expenses.reduce((s, e) => s + e.amount, 0));
   const totalMiles    = round2(expenses.filter(e => e.category === 'miles').reduce((s, e) => s + (e.miles || 0), 0));
   let expectedRent = 0;
+  const monthlyExpectedRent = {};   // { month: totalExpected }
+  const monthlyRoomExpected  = {};  // { month: { roomId: expected } }
   months.forEach(m => {
-    allPeriods.forEach(p => {
-      if (!allRooms.find(r => r.id === p.room_id)) return;
-      const pro = proratedRent(p, m); if (pro) expectedRent += pro.prorated;
+    const [y2, m2] = m.split('-').map(Number);
+    const fom2 = new Date(Date.UTC(y2, m2-1, 1)), lom2 = new Date(Date.UTC(y2, m2, 0));
+    let mer = 0;
+    monthlyRoomExpected[m] = {};
+    allRooms.forEach(room => {
+      let roomDue = 0;
+      allPeriods
+        .filter(p => {
+          if (p.room_id !== room.id) return false;
+          const s = new Date(p.start_date), e = p.end_date ? new Date(p.end_date) : null;
+          return s <= lom2 && (!e || e >= fom2);
+        })
+        .forEach(p => { const pro = proratedRent(p, m); if (pro) roomDue += pro.prorated; });
+      if (roomDue > 0) {
+        monthlyRoomExpected[m][room.id] = round2(roomDue);
+        mer += roomDue;
+      }
     });
+    expectedRent += mer;
+    monthlyExpectedRent[m] = round2(mer);
   });
 
   res.json({
     from, to, months, buildings: bldFilter || ['all'],
     totalIncome, totalExpenses, net: round2(totalIncome - totalExpenses),
-    expectedRent: round2(expectedRent), totalMiles,
+    expectedRent: round2(expectedRent), monthlyExpectedRent, monthlyRoomExpected, totalMiles,
     expByCategory, roomSummary,
     payments, expenses, adjustments: allAdj,
     otherIncome: otherIncomeRows,

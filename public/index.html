@@ -212,13 +212,16 @@ tbody tr:hover td{background:var(--bg2)}
         <input type="hidden" id="pm"/>
       </div>
     </div>
-    <div class="fr">
-      <div class="fg"><label>Amount ($)</label><input type="number" id="pa" placeholder="0.00" min="0" step="0.01" oninput="payPreview()"/></div>
-      <div class="fg"><label>Days late</label><input type="number" id="pdl" value="0" min="0" step="1" oninput="payPreview()" style="width:100%"/></div>
-      <div class="fg"><label>Notes</label><input type="text" id="pn" placeholder="Optional"/></div>
-      <div class="fg" style="display:flex;align-items:flex-end"><button class="btn p" onclick="recPay()" style="width:100%">Add payment</button></div>
+    <div id="pay-single-mode">
+      <div class="fr">
+        <div class="fg"><label>Amount ($)</label><input type="number" id="pa" placeholder="0.00" min="0" step="0.01" oninput="payPreview()"/></div>
+        <div class="fg"><label>Days late</label><input type="number" id="pdl" value="0" min="0" step="1" oninput="payPreview()" style="width:100%"/></div>
+        <div class="fg"><label>Notes</label><input type="text" id="pn" placeholder="Optional"/></div>
+        <div class="fg" style="display:flex;align-items:flex-end"><button class="btn p" onclick="recPay()" style="width:100%">Add payment</button></div>
+      </div>
+      <div id="pprev" class="note"></div>
     </div>
-    <div id="pprev" class="note"></div>
+    <div id="pay-multi-mode" style="display:none"></div>
   </div>
   <div class="card">
     <div class="ct">Other income</div>
@@ -254,6 +257,28 @@ tbody tr:hover td{background:var(--bg2)}
   <div class="card">
     <div class="sh"><h2>Other income history</h2></div>
     <div id="oi-tbl"></div>
+  </div>
+
+  <div class="card">
+    <div class="ct">Add extra charge</div>
+    <div class="fr">
+      <div class="fg"><label>Building</label><select id="chb" onchange="refillChargeRooms()"></select></div>
+      <div class="fg"><label>Room</label><select id="chr"></select></div>
+      <div class="fg"><label>Date</label><input type="date" id="chd"/></div>
+      <div class="fg"><label>Description</label><input type="text" id="chn" placeholder="e.g. Carpet damage, pet fee"/></div>
+      <div class="fg"><label>Amount ($)</label><input type="number" id="cha" placeholder="0.00" min="0.01" step="0.01"/></div>
+      <div class="fg" style="display:flex;align-items:flex-end"><button class="btn p" onclick="addCharge()" style="width:100%">Add charge</button></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="sh"><h2>Outstanding charges</h2></div>
+    <div id="charges-tbl"></div>
+  </div>
+
+  <div class="card">
+    <div class="sh"><h2>Handled balances</h2></div>
+    <div id="adj-tbl"></div>
   </div>
 </div>
 
@@ -338,12 +363,6 @@ tbody tr:hover td{background:var(--bg2)}
     <div id="exp-tbl"></div>
   </div>
 
-  <div class="card">
-    <div class="sh"><h2>Handled balances</h2>
-      <input type="hidden" id="fadj"/>
-    </div>
-    <div id="adj-tbl"></div>
-  </div>
 </div>
 
 <!-- ── ROOMS ── -->
@@ -381,7 +400,14 @@ tbody tr:hover td{background:var(--bg2)}
       <div class="fg"><label>Name</label><input type="text" id="sfn" placeholder="e.g. Maria Torres"/></div>
       <div class="fg"><label>Role</label><input type="text" id="sfr" placeholder="e.g. Maintenance"/></div>
       <div class="fg"><label>Building</label><div id="sfb-ms"></div></div>
-      <div class="fg"><label>Monthly pay ($)</label><input type="number" id="sfp" placeholder="0.00" min="0" step="0.01"/></div>
+      <div class="fg">
+        <label>Pay type</label>
+        <div style="display:flex;gap:8px;padding-top:4px">
+          <label style="display:flex;align-items:center;gap:5px;font-size:13px;cursor:pointer"><input type="radio" name="sfpt" id="sfpt-sal" value="salary" checked style="width:auto"> Salary</label>
+          <label style="display:flex;align-items:center;gap:5px;font-size:13px;cursor:pointer"><input type="radio" name="sfpt" id="sfpt-hr" value="hourly" style="width:auto"> Hourly</label>
+        </div>
+      </div>
+      <div class="fg"><label id="sfp-lbl">Monthly salary ($)</label><input type="number" id="sfp" placeholder="0.00" min="0" step="0.01"/></div>
       <div class="fg" style="display:flex;align-items:flex-end"><button class="btn p" onclick="addStaff()" style="width:100%">Add</button></div>
     </div>
   </div>
@@ -427,6 +453,7 @@ const MRATE = 0.725;
 const $ = id => document.getElementById(id);
 const fmt = n => '$' + (+n).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
 const fmtMo = m => { if(!m) return ''; const[y,mo]=m.split('-'); return new Date(+y,+mo-1,1).toLocaleDateString('en-US',{month:'long',year:'numeric'}); };
+const round2 = n => Math.round(n * 100) / 100;
 const ini = n => n.trim().split(/\s+/).map(w=>w[0]).join('').toUpperCase().slice(0,2);
 const prevMo = m => { const[y,mo]=m.split('-').map(Number); const d=new Date(Date.UTC(y,mo-2,1)); return `${d.getUTCFullYear()}-${String(d.getUTCMonth()+1).padStart(2,'0')}`; };
 
@@ -485,8 +512,24 @@ function closeModal(){ $('modal-root').innerHTML=''; }
 let _payBldSel = null; // null = all
 let _expBldSel = null;
 let _expBldForm = null;   // null = all buildings (= 'both')
+let _editExpBld = null;   // building selection inside the edit expense modal
 let _staffBldForm = null;
 let _oiBldForm = null;
+
+// Convert multi-select result → stored building value (always explicit names)
+function bldVal(sel){ return (sel&&sel.length)?sel.join(','):BUILDINGS_LIST.join(','); }
+// Convert stored value → display string
+function bldDisplay(v){
+  if(!v) return 'General / All';
+  if(v==='both') return BUILDINGS_LIST.length?BUILDINGS_LIST.join(', '):'General / All'; // legacy
+  return v.split(',').join(', ');
+}
+// Convert stored value → multi-select initial selection array (null = all selected)
+function bldToSel(v){
+  if(!v||v==='both') return null; // legacy: pre-select all
+  const parts=v.split(',');
+  return parts.length===BUILDINGS_LIST.length&&parts.every(b=>BUILDINGS_LIST.includes(b))?null:parts;
+}
 
 function buildMultiSelect(containerId, buildings, currentSel, onChange) {
   const container = $(containerId);
@@ -496,9 +539,8 @@ function buildMultiSelect(containerId, buildings, currentSel, onChange) {
   if (!sel.size) sel = new Set(buildings);
 
   function label() {
-    if (!sel.size || sel.size === buildings.length) return 'All buildings';
-    if (sel.size === 1) return [...sel][0];
-    return sel.size + ' buildings';
+    if (!sel.size || sel.size === buildings.length) return 'General / All';
+    return [...sel].join(', ');
   }
 
   function render() {
@@ -567,23 +609,29 @@ function buildMultiSelect(containerId, buildings, currentSel, onChange) {
   render();
 }
 
-// ─── Buildings list (localStorage) ───────────────────────────────────────────
-function loadBuildingsFromStorage(){
-  try{ BUILDINGS_LIST=JSON.parse(localStorage.getItem('rental_buildings')||'[]'); }catch{ BUILDINGS_LIST=[]; }
-  if(!BUILDINGS_LIST.length){
-    BUILDINGS_LIST=[...new Set(ROOMS.map(r=>r.building))].filter(Boolean).sort();
-    saveBuildingsToStorage();
-  }
-}
-function saveBuildingsToStorage(){
-  localStorage.setItem('rental_buildings',JSON.stringify(BUILDINGS_LIST));
+// ─── Buildings list (server-backed) ──────────────────────────────────────────
+async function loadBuildings(){
+  try{
+    BUILDINGS_LIST = await GET('/buildings');
+    // Migrate any buildings stored in localStorage that aren't in the DB yet
+    let stored=[];
+    try{ stored=JSON.parse(localStorage.getItem('rental_buildings')||'[]'); }catch{}
+    for(const b of stored){
+      if(!BUILDINGS_LIST.includes(b)){
+        try{ await POST('/buildings',{name:b}); }catch{}
+      }
+    }
+    if(stored.length) localStorage.removeItem('rental_buildings');
+    BUILDINGS_LIST = await GET('/buildings');
+  }catch(e){ BUILDINGS_LIST=[...new Set(ROOMS.map(r=>r.building))].filter(Boolean).sort(); }
+  fillBuildings();
 }
 function openBuildingsSettings(){
   function render(){
-    const list=BUILDINGS_LIST.map((b,i)=>
+    const list=BUILDINGS_LIST.map(b=>
       `<div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--bdr)">
         <span style="flex:1;font-size:13px">${b}</span>
-        <button class="btn d xs" onclick="removeBuildingAt(${i})" title="Remove building" style="padding:4px 7px;line-height:0">${TRASH_SVG}</button>
+        <button class="btn d xs" onclick="removeBuildingByName('${b.replace(/'/g,"\\'")}')" title="Remove building" style="padding:4px 7px;line-height:0">${TRASH_SVG}</button>
       </div>`).join('');
     $('bset-list').innerHTML=list||'<div style="font-size:13px;color:var(--t2);padding:8px 0">No buildings yet.</div>';
   }
@@ -599,29 +647,30 @@ function openBuildingsSettings(){
   render();
   window._renderBuildingSettings=render;
 }
-function addBuildingFromSettings(){
+async function addBuildingFromSettings(){
   const inp=$('bset-inp'); if(!inp) return;
   const val=inp.value.trim();
   if(!val){ toast('Enter a building name.',true); return; }
-  if(BUILDINGS_LIST.includes(val)){ toast('Already exists.',true); return; }
-  BUILDINGS_LIST.push(val); BUILDINGS_LIST.sort();
-  saveBuildingsToStorage(); fillBuildings();
-  inp.value=''; window._renderBuildingSettings?.();
+  try{
+    await POST('/buildings',{name:val});
+    BUILDINGS_LIST=await GET('/buildings');
+    fillBuildings(); inp.value=''; window._renderBuildingSettings?.();
+  }catch(e){ toast(e.message,true); }
 }
-function removeBuildingAt(i){
-  const b=BUILDINGS_LIST[i];
-  if(ROOMS.some(r=>r.building===b)){ toast(`Can't remove — rooms exist in ${b}.`,true); return; }
-  BUILDINGS_LIST.splice(i,1);
-  saveBuildingsToStorage(); fillBuildings();
-  window._renderBuildingSettings?.();
+async function removeBuildingByName(name){
+  try{
+    await DEL(`/buildings/${encodeURIComponent(name)}`);
+    BUILDINGS_LIST=await GET('/buildings');
+    fillBuildings(); window._renderBuildingSettings?.();
+  }catch(e){ toast(e.message,true); }
 }
 
 // ─── Building selects ─────────────────────────────────────────────────────────
 function fillBuildings(){
-  const B=BUILDINGS_LIST.length ? BUILDINGS_LIST : [...new Set(ROOMS.map(r=>r.building))].filter(Boolean).sort();
+  const B=BUILDINGS_LIST;
   const opts=B.map(b=>`<option value="${b}">${b}</option>`).join('');
   // Single selects
-  ['pb','nrb'].forEach(id=>{
+  ['pb','nrb','chb'].forEach(id=>{
     const el=$(id); if(!el) return;
     const cur=el.value;
     el.innerHTML=opts;
@@ -644,8 +693,9 @@ function refreshAll(){
   loadDash();
   loadPay();
   loadOtherIncome();
-  loadExp();
+  loadCharges();
   loadAdj();
+  loadExp();
   loadSalRoster();
 }
 
@@ -663,7 +713,7 @@ function setGlobalMo(mo){
   $('dlbl').textContent=lbl;
   $('fpm').value=mo;
   $('fem').value=mo;
-  $('fadj').value=mo;
+  loadCharges(); loadAdj();
   $('em').value=mo;
   $('sm').value=mo;
   $('pm').value=mo; $('pm-lbl').textContent=lbl;
@@ -674,8 +724,8 @@ function setGlobalMo(mo){
 // ─── Tab navigation ───────────────────────────────────────────────────────────
 const TAB_ACTIONS = {
   dashboard:()=>loadDash(),
-  payments: ()=>{ loadPay(); loadOtherIncome(); },
-  expenses: ()=>{ loadExp(); loadSalRoster(); loadAdj(); },
+  payments: ()=>{ loadPay(); loadOtherIncome(); loadCharges(); loadAdj(); },
+  expenses: ()=>{ loadExp(); loadSalRoster(); },
   rooms:    ()=>renderRooms(),
   staff:    ()=>renderStaff(),
   reports:  ()=>{}
@@ -707,15 +757,31 @@ let _previewLateFee=0;
 async function payPreview(){
   const rid=$('pr').value, mo=$('pm').value;
   const daysLate=Math.max(0,parseInt($('pdl')?.value)||0);
-  const el=$('pprev');
-  if(!rid||!mo){ el.innerHTML=''; return; }
+  if(!rid||!mo){ $('pprev').innerHTML=''; return; }
   try{
     const d=await GET(`/rooms/${rid}/preview?month=${mo}&days_late=${daysLate}`);
     _previewLateFee=d.lateFee||0;
-    if(d.vacant){ el.innerHTML='<span style="color:var(--red)">No active occupancy — unit vacant.</span>'; return; }
+
+    if(d.vacant){
+      $('pay-single-mode').style.display='';
+      $('pay-multi-mode').style.display='none';
+      $('pprev').innerHTML='<span style="color:var(--red)">No active occupancy — unit vacant.</span>';
+      return;
+    }
+
+    if(d.pro.multiTenant){
+      $('pay-single-mode').style.display='none';
+      $('pay-multi-mode').style.display='';
+      buildMultiPayForm(d, rid, mo);
+      return;
+    }
+
+    // Single tenant — existing behaviour
+    $('pay-single-mode').style.display='';
+    $('pay-multi-mode').style.display='none';
     const na=parseFloat($('pa').value)||0;
-    let msg=d.pro.fullMonth?`Rent: ${fmt(d.pro.rent)}`:
-      `Prorated: ${fmt(d.pro.prorated)} (${d.pro.days}/${d.pro.totalDays} days × ${fmt(d.pro.rent)})`;
+    let msg=d.pro.fullMonth?`Rent: ${fmt(d.pro.rent)}`
+      :`Prorated: ${fmt(d.pro.prorated)} (${d.pro.days}/${d.pro.totalDays} days × ${fmt(d.pro.rent)})`;
     if(d.carry>0.005)  msg+=` · Credit carried: ${fmt(d.carry)} · Due: ${fmt(d.due)}`;
     if(d.carry<-0.005) msg+=` · Balance owed: ${fmt(-d.carry)} · Due: ${fmt(d.due)}`;
     if(d.paid>0.005)   msg+=` · Already paid: ${fmt(d.paid)}`;
@@ -730,12 +796,78 @@ async function payPreview(){
     if(na>0){
       const totalDue=d.due+(d.lateFee||0);
       const diff=(d.paid+na)-totalDue;
-      msg+=diff>0.005 ? ` · Overpaid ${fmt(diff)} → credit` :
-           diff<-0.005? ` · Short ${fmt(-diff)} → carried forward` :
-                        ' · Fully paid ✓';
+      msg+=diff>0.005?` · Overpaid ${fmt(diff)} → credit`:diff<-0.005?` · Short ${fmt(-diff)} → carried forward`:' · Fully paid ✓';
     }
-    el.innerHTML=msg;
-  }catch{ el.innerHTML=''; }
+    $('pprev').innerHTML=msg;
+    // store period_id for recPay
+    window._previewPeriodId=(d.periods&&d.periods[0])?d.periods[0].period.id:null;
+  }catch{ $('pprev').innerHTML=''; }
+}
+
+function buildMultiPayForm(d, rid, mo){
+  const wrap=$('pay-multi-mode');
+  wrap.innerHTML='';
+  if(d.carry>0.005||d.carry<-0.005){
+    const carryNote=mkEl('div',{class:'note',style:'margin-bottom:10px'},
+      [d.carry>0.005?`Credit carried from prior months: ${fmt(d.carry)}`
+                    :`Balance owed from prior months: ${fmt(-d.carry)}`]);
+    wrap.appendChild(carryNote);
+  }
+  d.periods.forEach((x,i)=>{
+    const isOutgoing=!!x.period.end_date;
+    const dateRange=x.period.end_date
+      ?`${x.period.start_date} → ${x.period.end_date}`
+      :`${x.period.start_date} → present`;
+    const prorateDesc=`${x.pro.days} day${x.pro.days!==1?'s':''} × ${fmt(x.pro.rent)}/mo = ${fmt(x.pro.prorated)}`;
+    const paid=x.paidForPeriod||0;
+    const remaining=Math.max(0,Math.round((x.pro.prorated-paid)*100)/100);
+
+    const card=mkEl('div',{style:'border:1px solid var(--bdr2);border-radius:var(--r);padding:12px;margin-bottom:10px'});
+
+    // Header row
+    const hdr=mkEl('div',{style:'display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px;margin-bottom:10px'});
+    const titleEl=mkEl('div',{style:'font-weight:600;font-size:13px'},[isOutgoing?'Outgoing tenant':'Incoming tenant']);
+    const detailEl=mkEl('div',{style:'font-size:12px;color:var(--t2)'},[`${dateRange} · ${prorateDesc}`]);
+    hdr.appendChild(titleEl); hdr.appendChild(detailEl);
+    if(paid>0.005){
+      hdr.appendChild(mkEl('span',{class:'badge bg',style:'font-size:11px'},[`Paid ${fmt(paid)}`]));
+    }
+    card.appendChild(hdr);
+
+    if(remaining>0.005){
+      const row=mkEl('div',{class:'fr',style:'margin:0'});
+      const amtId=`mpa-${i}`, notesId=`mpn-${i}`;
+
+      const amtFg=mkEl('div',{class:'fg'});
+      amtFg.innerHTML='<label>Amount ($)</label>';
+      amtFg.appendChild(mkEl('input',{type:'number',id:amtId,value:remaining.toFixed(2),min:'0.01',step:'0.01',style:'width:100%'}));
+
+      const notesFg=mkEl('div',{class:'fg'});
+      notesFg.innerHTML='<label>Notes</label>';
+      notesFg.appendChild(mkEl('input',{type:'text',id:notesId,placeholder:'Optional',style:'width:100%'}));
+
+      const btnFg=mkEl('div',{class:'fg',style:'display:flex;align-items:flex-end'});
+      const btn=mkEl('button',{class:'btn p',style:'width:100%'},['Record payment']);
+      btn.onclick=()=>recPayForPeriod(rid,mo,x.period.id,amtId,notesId);
+      btnFg.appendChild(btn);
+
+      row.appendChild(amtFg); row.appendChild(notesFg); row.appendChild(btnFg);
+      card.appendChild(row);
+    } else {
+      card.appendChild(mkEl('div',{style:'font-size:13px;color:var(--grn-t)'},['✓ Fully paid']));
+    }
+    wrap.appendChild(card);
+  });
+}
+
+async function recPayForPeriod(rid, mo, periodId, amtId, notesId){
+  const amt=parseFloat($(amtId)?.value);
+  const notes=$(notesId)?.value.trim()||'';
+  if(!(amt>0)){ toast('Enter a valid amount.',true); return; }
+  try{
+    await POST('/payments',{room_id:rid,month:mo,amount:amt,notes,days_late:0,late_fee:0,period_id:periodId});
+    toast('Payment recorded.'); refreshAll(); payPreview();
+  }catch(e){ toast(e.message,true); }
 }
 
 // ─── PAYMENTS ─────────────────────────────────────────────────────────────────
@@ -744,9 +876,9 @@ async function recPay(){
   const daysLate=Math.max(0,parseInt($('pdl').value)||0);
   if(!rid||!mo||!(amt>0)){ toast('Fill in room, month and amount.',true); return; }
   try{
-    await POST('/payments',{room_id:rid,month:mo,amount:amt,notes,days_late:daysLate,late_fee:_previewLateFee});
+    await POST('/payments',{room_id:rid,month:mo,amount:amt,notes,days_late:daysLate,late_fee:_previewLateFee,period_id:window._previewPeriodId||null});
     toast('Payment recorded.');
-    $('pa').value=''; $('pn').value=''; $('pdl').value='0'; _previewLateFee=0; payPreview(); refreshAll();
+    $('pa').value=''; $('pn').value=''; $('pdl').value='0'; _previewLateFee=0; window._previewPeriodId=null; payPreview(); refreshAll();
   }catch(e){ toast(e.message,true); }
 }
 
@@ -780,7 +912,7 @@ async function loadPay(){
 const OI_LABEL={laundry:'Laundry',parking:'Parking',storage:'Storage',pet_fee:'Pet Fee',application_fee:'Application Fee',misc:'Misc',other:'Other'};
 
 async function recOtherIncome(){
-  const bld=(_oiBldForm&&_oiBldForm.length===1)?_oiBldForm[0]:'both';
+  const bld=bldVal(_oiBldForm);
   const cat=$('oic').value, amt=parseFloat($('oia').value), desc=$('oid').value.trim();
   if(!(amt>0)){ toast('Enter a valid amount.',true); return; }
   try{
@@ -798,7 +930,7 @@ async function loadOtherIncome(){
     t.innerHTML=`<thead><tr><th>Building</th><th>Category</th><th>Amount</th><th>Description</th><th style="width:62px"></th></tr></thead>`;
     const tb=document.createElement('tbody');
     rows.forEach(r=>{
-      const tr=mkEl('tr',{},[`<td>${r.building==='both'?'General':r.building}</td><td><span class="badge bb">${OI_LABEL[r.category]||r.category}</span></td><td>${fmt(r.amount)}</td><td style="color:var(--t2)">${r.description||'—'}</td><td></td>`]);
+      const tr=mkEl('tr',{},[`<td>${bldDisplay(r.building)}</td><td><span class="badge bb">${OI_LABEL[r.category]||r.category}</span></td><td>${fmt(r.amount)}</td><td style="color:var(--t2)">${r.description||'—'}</td><td></td>`]);
       tr.lastElementChild.appendChild(trashBtn(()=>delOtherIncome(r.id),'Delete income'));
       tb.appendChild(tr);
     });
@@ -828,7 +960,7 @@ function onMilesInput(){
 }
 
 async function recExp(){
-  const bld=(_expBldForm&&_expBldForm.length===1)?_expBldForm[0]:'both';
+  const bld=bldVal(_expBldForm);
   const cat=$('ec').value, mo=$('em').value, raw=parseFloat($('ea').value), desc=$('ed').value.trim();
   if(!mo||!(raw>0)){ toast('Fill in month and amount.',true); return; }
   const body={building:bld,category:cat,month:mo,amount:raw,description:desc};
@@ -847,31 +979,88 @@ async function delExp(id){
   catch(e){ toast(e.message,true); }
 }
 
+function editExp(e){
+  const catOpts=Object.entries(CAT_LABELS_EXP).map(([v,l])=>`<option value="${v}"${v===e.category?'selected':''}>${l}</option>`).join('');
+  _editExpBld = bldToSel(e.building);
+  showModal(`<div class="modal">
+    <h3>Edit expense</h3>
+    <label>Building</label>
+    <div id="eexp-bld-ms"></div>
+    <label>Category</label>
+    <select id="eexp-cat" onchange="onEditExpCat()">${catOpts}</select>
+    <label>Month</label>
+    <input type="month" id="eexp-mo" value="${e.month}"/>
+    <label id="eexp-amlbl">${e.category==='miles'?'Miles driven':'Amount ($)'}</label>
+    <input type="number" id="eexp-a" value="${e.category==='miles'&&e.miles!=null?e.miles:e.amount}" min="0.01" step="${e.category==='miles'?'1':'0.01'}"/>
+    <div id="eexp-mhint" style="display:${e.category==='miles'?'block':'none'};font-size:12px;color:var(--t2);margin-top:2px"></div>
+    <label>Description</label>
+    <input type="text" id="eexp-desc" value="${(e.description||'').replace(/"/g,'&quot;')}"/>
+    <div class="mbtns">
+      <button class="btn p" onclick="saveExp('${e.id}')">Save</button>
+      <button class="btn" onclick="closeModal()">Cancel</button>
+    </div>
+  </div>`);
+  buildMultiSelect('eexp-bld-ms', BUILDINGS_LIST, _editExpBld, sel=>{ _editExpBld=sel; });
+  onEditExpCat();
+  $('eexp-a').oninput=onEditExpCat;
+}
+
+function onEditExpCat(){
+  const cat=$('eexp-cat').value, isMiles=cat==='miles';
+  $('eexp-amlbl').textContent=isMiles?'Miles driven':'Amount ($)';
+  $('eexp-a').step=isMiles?'1':'0.01';
+  $('eexp-mhint').style.display=isMiles?'block':'none';
+  if(isMiles){ const mi=parseFloat($('eexp-a').value)||0; $('eexp-mhint').textContent=mi>0?`${mi.toLocaleString()} mi × $0.725 = ${fmt(mi*MRATE)} deductible`:'IRS business rate: $0.725/mile'; }
+}
+
+async function saveExp(id){
+  const bld=bldVal(_editExpBld);
+  const cat=$('eexp-cat').value, mo=$('eexp-mo').value;
+  const raw=parseFloat($('eexp-a').value), desc=$('eexp-desc').value.trim();
+  if(!mo||!(raw>0)){ toast('Fill in month and amount.',true); return; }
+  const body={building:bld,category:cat,month:mo,description:desc};
+  if(cat==='miles'){ body.miles=raw; body.amount=+(raw*MRATE).toFixed(2); }
+  else { body.amount=raw; body.miles=null; }
+  try{
+    await PATCH(`/expenses/${id}`,body);
+    toast('Updated.'); closeModal(); refreshAll();
+  }catch(e){ toast(e.message,true); }
+}
+
+const CAT_LABELS_EXP={advertising:'Advertising',auto_travel:'Auto & Travel',cleaning_maintenance:'Cleaning & Maint.',commissions:'Commissions',insurance:'Insurance',legal_professional:'Legal & Prof.',management_fees:'Management',mortgage_interest:'Mortgage Interest',other_interest:'Other Interest',repairs:'Repairs',supplies:'Supplies',taxes:'Taxes',utilities:'Utilities',depreciation:'Depreciation',other_expenses:'Other Expenses',miles:'Mileage',salaries:'Salaries',refund:'Refund',writeoff:'Write-off',misc:'Misc'};
+
 async function loadExp(){
   const mf=$('fem').value||CUR_MO, cf=$('fec').value;
   const qs=new URLSearchParams();
   if(mf) qs.set('month',mf); if(cf) qs.set('category',cf);
-  const CAT_LABELS={advertising:'Advertising',auto_travel:'Auto & Travel',cleaning_maintenance:'Cleaning & Maint.',commissions:'Commissions',insurance:'Insurance',legal_professional:'Legal & Prof.',management_fees:'Management',mortgage_interest:'Mortgage Interest',other_interest:'Other Interest',repairs:'Repairs',supplies:'Supplies',taxes:'Taxes',utilities:'Utilities',depreciation:'Depreciation',other_expenses:'Other Expenses',miles:'Mileage',salaries:'Salaries',refund:'Refund',writeoff:'Write-off',misc:'Misc'};
+  const CAT_LABELS=CAT_LABELS_EXP;
   const CAT_BC={salaries:'bb',miles:'ba',refund:'br',writeoff:'bpu'};
   try{
     let rows=await GET(`/expenses?${qs}`);
-    if(_expBldSel) rows=rows.filter(e=>_expBldSel.includes(e.building));
+    if(_expBldSel) rows=rows.filter(e=>!e.building||e.building==='both'||e.building.split(',').some(b=>_expBldSel.includes(b)));
     if(!rows.length){ $('exp-tbl').innerHTML='<div class="empty">No expenses found.</div>'; return; }
     const t=document.createElement('table');
-    t.innerHTML=`<thead><tr><th>Building</th><th>Category</th><th>Month</th><th>Miles</th><th>Amount</th><th>Description</th><th style="width:62px"></th></tr></thead>`;
+    t.innerHTML=`<thead><tr><th>Building</th><th>Category</th><th>Month</th><th>Miles</th><th>Amount</th><th>Description</th><th style="width:80px"></th></tr></thead>`;
     const tb=document.createElement('tbody');
     rows.forEach(e=>{
       const bc=CAT_BC[e.category]||'bgr';
-      const btn=trashBtn(()=>delExp(e.id),'Delete expense');
+      const delBtn=trashBtn(()=>delExp(e.id),'Delete expense');
       const tr=mkEl('tr',{},[
-        `<td>${e.building==='both'?'General':e.building}</td>
+        `<td>${bldDisplay(e.building)}</td>
          <td><span class="badge ${bc}">${CAT_LABELS[e.category]||e.category}</span></td>
          <td>${fmtMo(e.month)}</td>
-         <td style="color:var(--t2)">${e.miles!=null?e.miles.toLocaleString()+' mi':'—'}</td>
+         <td style="color:var(--t2)">${e.hours!=null?e.hours+' hrs':e.miles!=null?e.miles.toLocaleString()+' mi':'—'}</td>
          <td>${fmt(e.amount)}</td>
          <td style="color:var(--t2)${e.staff_id?';font-weight:600':''}">${e.description||'—'}</td><td></td>`
       ]);
-      tr.lastElementChild.appendChild(btn); tb.appendChild(tr);
+      const wrap=document.createElement('div');
+      wrap.style='display:flex;gap:4px';
+      const editBtn=document.createElement('button');
+      editBtn.className='btn w xs'; editBtn.innerHTML='&#9881;';
+      editBtn.onclick=e.staff_id?()=>editSalaryExp(e.id,e.amount,e.description||'Staff'):()=>editExp(e);
+      wrap.appendChild(editBtn);
+      wrap.appendChild(delBtn);
+      tr.lastElementChild.appendChild(wrap); tb.appendChild(tr);
     });
     t.appendChild(tb); $('exp-tbl').innerHTML=''; $('exp-tbl').appendChild(t);
   }catch(e){ $('exp-tbl').innerHTML=`<div class="empty">${e.message}</div>`; }
@@ -881,33 +1070,94 @@ async function loadExp(){
 const ADJ_LABEL={forgiven:'Forgiven',writeoff:'Write-off',charge:'Extra charge',refund:'Refund'};
 const ADJ_BC   ={forgiven:'ba',writeoff:'bpu',charge:'br',refund:'bb'};
 
-async function loadAdj(){
-  const mo=$('fadj').value||CUR_MO;
-  const c=$('adj-tbl');
+// Outstanding charges (active, type='charge')
+async function loadCharges(){
+  const c=$('charges-tbl');
+  if(!c) return;
   try{
-    const rows=await GET(`/adjustments?month=${mo}`);
-    if(!rows.length){ c.innerHTML='<div class="empty">No adjustments this month.</div>'; return; }
+    const rows=await GET(`/adjustments?type=charge&status=active`);
+    if(!rows.length){ c.innerHTML='<div class="empty">No outstanding charges.</div>'; return; }
     const t=document.createElement('table');
-    t.innerHTML=`<thead><tr><th>Date</th><th>Building</th><th>Room</th><th>Type</th><th>Amount</th><th>Note</th><th style="width:80px"></th></tr></thead>`;
+    t.innerHTML=`<thead><tr><th>Date</th><th>Building</th><th>Room</th><th>Amount</th><th>Description</th><th style="width:110px"></th></tr></thead>`;
     const tb=document.createElement('tbody');
     rows.forEach(a=>{
       const tr=document.createElement('tr');
       tr.innerHTML=`<td>${a.date}</td><td>${a.building}</td><td>${a.number}</td>
-        <td><span class="badge ${ADJ_BC[a.type]||'bgr'}">${ADJ_LABEL[a.type]||a.type}</span></td>
-        <td>${fmt(a.amount)}</td>
+        <td><strong style="color:var(--red)">${fmt(a.amount)}</strong></td>
         <td style="color:var(--t2)">${a.note||'—'}</td><td></td>`;
       const wrap=document.createElement('div');
       wrap.style='display:flex;gap:4px';
+      const forgiveBtn=document.createElement('button');
+      forgiveBtn.className='btn w xs'; forgiveBtn.textContent='Forgive';
+      forgiveBtn.onclick=()=>forgiveCharge(a.id,a.note,a.amount,a.building,a.number);
       const editBtn=document.createElement('button');
-      editBtn.className='btn w xs'; editBtn.textContent='Edit';
+      editBtn.className='btn w xs'; editBtn.innerHTML='&#9881;'; editBtn.title='Edit';
       editBtn.onclick=()=>editAdj(a);
-      const delBtn=trashBtn(()=>delAdj(a.id),'Delete adjustment');
-      wrap.appendChild(editBtn); wrap.appendChild(delBtn);
+      wrap.appendChild(forgiveBtn); wrap.appendChild(editBtn);
+      wrap.appendChild(trashBtn(()=>delAdj(a.id),'Delete charge'));
       tr.lastElementChild.appendChild(wrap);
       tb.appendChild(tr);
     });
     t.appendChild(tb); c.innerHTML=''; c.appendChild(t);
   }catch(e){ c.innerHTML=`<div class="empty">${e.message}</div>`; }
+}
+
+async function forgiveCharge(id,note,amount,building,number){
+  if(!confirm(`Forgive ${fmt(amount)} charge on ${building} ${number}? This will remove it from the tenant's balance.`)) return;
+  try{
+    await PATCH(`/adjustments/${id}`,{status:'forgiven'});
+    toast('Charge forgiven and moved to Handled.'); refreshAll();
+  }catch(e){ toast(e.message,true); }
+}
+
+// Handled balances — forgiven charges + forgiven/writeoff/refund adjustments
+async function loadAdj(){
+  const c=$('adj-tbl');
+  if(!c) return;
+  try{
+    const [forgiven, handled] = await Promise.all([
+      GET(`/adjustments?type=charge&status=forgiven`),
+      GET(`/adjustments?status=active`).then(rows=>rows.filter(a=>a.type!=='charge')),
+    ]);
+    const rows=[...forgiven,...handled].sort((a,b)=>b.date.localeCompare(a.date));
+    if(!rows.length){ c.innerHTML='<div class="empty">No handled balances.</div>'; return; }
+    const t=document.createElement('table');
+    t.innerHTML=`<thead><tr><th>Date</th><th>Building</th><th>Room</th><th>Type</th><th>Amount</th><th>Note</th><th style="width:50px"></th></tr></thead>`;
+    const tb=document.createElement('tbody');
+    const LABEL={forgiven:'Forgiven',writeoff:'Write-off',charge:'Charge (forgiven)',refund:'Refund'};
+    const BC={forgiven:'ba',writeoff:'bpu',charge:'ba',refund:'bb'};
+    rows.forEach(a=>{
+      const displayType=a.type==='charge'?'charge (forgiven)':a.type;
+      const tr=document.createElement('tr');
+      tr.innerHTML=`<td>${a.date}</td><td>${a.building}</td><td>${a.number}</td>
+        <td><span class="badge ${BC[a.type]||'bgr'}">${LABEL[a.type]||a.type}</span></td>
+        <td>${fmt(a.amount)}</td>
+        <td style="color:var(--t2)">${a.note||'—'}</td><td></td>`;
+      if(a.type!=='charge'){
+        tr.lastElementChild.appendChild(trashBtn(()=>delAdj(a.id),'Delete'));
+      }
+      tb.appendChild(tr);
+    });
+    t.appendChild(tb); c.innerHTML=''; c.appendChild(t);
+  }catch(e){ c.innerHTML=`<div class="empty">${e.message}</div>`; }
+}
+
+function refillChargeRooms(){
+  const bld=$('chb').value;
+  $('chr').innerHTML=ROOMS.filter(r=>r.building===bld).map(r=>`<option value="${r.id}">Room ${r.number}</option>`).join('');
+}
+
+async function addCharge(){
+  const roomId=$('chr').value, date=$('chd').value, note=$('chn').value.trim(), amount=parseFloat($('cha').value);
+  if(!roomId||!date||!note||!(amount>0)){ toast('Fill in all fields.',true); return; }
+  const room=ROOMS.find(r=>r.id===roomId);
+  const period=(room?.periods||[]).sort((a,b)=>b.start_date.localeCompare(a.start_date)).find(p=>!p.end_date||(p.end_date>=date.slice(0,7)+'-01'))
+    ||(room?.periods||[]).sort((a,b)=>b.start_date.localeCompare(a.start_date))[0];
+  if(!period){ toast('No tenancy period found for this room.',true); return; }
+  try{
+    await POST('/adjustments',{room_id:roomId,period_id:period.id,type:'charge',amount,note,date});
+    toast('Charge added.'); $('chn').value=''; $('cha').value=''; refreshAll();
+  }catch(e){ toast(e.message,true); }
 }
 
 function editAdj(a){
@@ -950,31 +1200,89 @@ async function loadSalRoster(){
   if(!STAFF.length){ c.innerHTML='<div class="empty" style="padding:.5rem 0">No staff added yet.</div>'; return; }
   try{
     const status=await GET(`/salaries/status?month=${mo}`);
-    const total=STAFF.reduce((s,x)=>s+x.pay,0);
-    const paid=status.filter(s=>s.paid_expense).reduce((s,x)=>s+x.paid_expense.amount,0);
-    const pCount=status.filter(s=>s.paid_expense).length;
+    const salaryStaff=status.filter(s=>s.pay_type!=='hourly');
+    const total=salaryStaff.reduce((s,x)=>s+x.pay,0);
+    const paid=status.reduce((s,x)=>s+x.paid_total,0);
+    const pCount=salaryStaff.filter(s=>s.paid_total>=s.pay-0.005).length;
     c.innerHTML='';
     const summary=mkEl('div',{style:'display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;font-size:13px;color:var(--t2)'},
-      [`<span>${pCount}/${STAFF.length} paid for ${fmtMo(mo)}</span>`,
-       `<span>Paid: <strong style="color:var(--text)">${fmt(paid)}</strong> of <strong style="color:var(--text)">${fmt(total)}</strong></span>`]);
+      [`<span>${pCount}/${salaryStaff.length} salaried paid for ${fmtMo(mo)}</span>`,
+       `<span>Paid out: <strong style="color:var(--text)">${fmt(paid)}</strong></span>`]);
     c.appendChild(summary);
     status.forEach((s,i)=>{
       const last=i===status.length-1;
       const row=mkEl('div',{class:'sar',style:last?'border-bottom:none':''});
-      const av=mkEl('div',{class:'sav',style:s.paid_expense?'background:var(--grn-bg);color:var(--grn-t)':''},[ini(s.name)]);
+      const isHourly=s.pay_type==='hourly';
+      const partial=!isHourly&&s.paid_total>0&&s.paid_total<s.pay-0.005;
+      const fullyPaid=!isHourly&&s.paid_total>=s.pay-0.005;
+      const avStyle=s.paid_total>0?(partial?'background:var(--amb-bg,#fff8e6);color:var(--amb,#b45309)':'background:var(--grn-bg);color:var(--grn-t)'):'';
+      const av=mkEl('div',{class:'sav',style:avStyle},[ini(s.name)]);
+      const rateLabel=isHourly?`$${s.pay}/hr`:`$${s.pay.toLocaleString()}/mo`;
       const info=mkEl('div',{style:'flex:1;min-width:0'},
         [`<div style="font-size:13px;font-weight:600">${s.name}</div>`,
-         `<div style="font-size:11px;color:var(--t2)">${s.role||'—'} · ${s.building==='both'?'Both':s.building}</div>`]);
+         `<div style="font-size:11px;color:var(--t2)">${s.role||'—'} · ${rateLabel}</div>`]);
       row.appendChild(av); row.appendChild(info);
-      if(s.paid_expense){
-        row.appendChild(mkEl('span',{class:'badge bg'},[`Paid ${fmt(s.paid_expense.amount)}`]));
-        row.appendChild(trashBtn(()=>undoPay(s.paid_expense.id,mo),'Undo salary payment'));
+
+      if(isHourly){
+        const right=mkEl('div',{style:'display:flex;flex-direction:column;align-items:flex-end;gap:6px'});
+
+        // Logged hours summary + owed
+        const totalOwed=Math.round(s.logged_hours*s.pay*100)/100;
+        const unpaidHrs=Math.max(0,Math.round((s.logged_hours-(s.paid_total/s.pay))*100)/100);
+        const owedAmt=Math.round(unpaidHrs*s.pay*100)/100;
+        const manageBtn=mkEl('button',{class:'btn xs',style:'font-size:11px;padding:2px 7px',onclick:()=>logHours(s.id,s.name,mo)},['Manage Hours']);
+        const hoursText=mkEl('span',{style:'font-size:12px;color:var(--t2)'},
+          [s.logged_hours>0
+            ?`${s.logged_hours} hrs logged · ${fmt(owedAmt)} unpaid`
+            :'No hours logged this month']);
+        const hoursLine=mkEl('div',{style:'display:flex;align-items:center;gap:6px;justify-content:flex-end'},
+          [hoursText,manageBtn]);
+        right.appendChild(hoursLine);
+
+        // Past payments
+        if(s.paid_total>0){
+          const payList=mkEl('div',{style:'display:flex;flex-direction:column;gap:3px;align-items:flex-end'});
+          s.paid_expenses.forEach(e=>{
+            const lbl=e.hours?`${e.hours} hrs × $${s.pay}/hr = ${fmt(e.amount)}`:fmt(e.amount);
+            payList.appendChild(mkEl('div',{style:'display:flex;align-items:center;gap:4px'},
+              [mkEl('span',{class:'badge bg'},['Paid']),
+               mkEl('span',{style:'font-size:11px;color:var(--t2)'},[lbl]),
+               trashBtn(()=>undoPay(e.id,mo),'Undo payment')]));
+          });
+          right.appendChild(payList);
+        }
+
+        // Pay action
+        const amtInp=mkEl('input',{type:'number',value:owedAmt>0?owedAmt.toFixed(2):'',min:'0.01',step:'0.01',placeholder:'0.00',style:'width:82px;padding:5px 7px;border:1px solid var(--bdr2);border-radius:var(--r);font-size:13px;font-family:inherit;background:var(--bg);color:var(--text)'});
+        amtInp.id=`sai-${s.id}`;
+        amtInp.disabled=owedAmt<=0;
+        const payBtn=mkEl('button',{class:'btn p xs',onclick:()=>payOne(s.id,mo,`sai-${s.id}`)},['Pay']);
+        payBtn.disabled=owedAmt<=0;
+        const inlineAmt=mkEl('div',{style:'display:flex;align-items:center;gap:3px'},
+          [mkEl('span',{style:'font-size:12px;color:var(--t2)'},['$']),amtInp]);
+        right.appendChild(mkEl('div',{style:'display:flex;gap:6px;align-items:center'},[inlineAmt,payBtn]));
+        row.appendChild(right);
+      } else if(fullyPaid){
+        row.appendChild(mkEl('span',{class:'badge bg'},[`Paid ${fmt(s.paid_total)}`]));
+        s.paid_expenses.forEach(e=>{
+          row.appendChild(trashBtn(()=>undoPay(e.id,mo),`Undo $${e.amount} payment`));
+        });
+      } else if(partial){
+        row.appendChild(mkEl('span',{class:'badge ba'},[`Partial ${fmt(s.paid_total)} of ${fmt(s.pay)}`]));
+        const rem=Math.round((s.pay-s.paid_total)*100)/100;
+        const remInp=mkEl('input',{type:'number',value:rem,min:'0.01',step:'0.01',style:'width:82px;padding:5px 7px;border:1px solid var(--bdr2);border-radius:var(--r);font-size:13px;font-family:inherit;background:var(--bg);color:var(--text)'});
+        remInp.id=`sai-${s.id}`;
+        row.appendChild(mkEl('div',{style:'display:flex;align-items:center;gap:5px'},
+          [`<span style="font-size:12px;color:var(--t2)">$</span>`,remInp]));
+        row.appendChild(mkEl('button',{class:'btn p xs',onclick:()=>payOne(s.id,mo,`sai-${s.id}`)},['Pay rest']));
+        s.paid_expenses.forEach(e=>{
+          row.appendChild(trashBtn(()=>undoPay(e.id,mo),`Undo $${e.amount} payment`));
+        });
       } else {
         const amtInp=mkEl('input',{type:'number',value:s.pay,min:'0',step:'0.01',style:'width:82px;padding:5px 7px;border:1px solid var(--bdr2);border-radius:var(--r);font-size:13px;font-family:inherit;background:var(--bg);color:var(--text)'});
         amtInp.id=`sai-${s.id}`;
-        const wrap=mkEl('div',{style:'display:flex;align-items:center;gap:5px'},
-          [`<span style="font-size:12px;color:var(--t2)">$</span>`,amtInp]);
-        row.appendChild(wrap);
+        row.appendChild(mkEl('div',{style:'display:flex;align-items:center;gap:5px'},
+          [`<span style="font-size:12px;color:var(--t2)">$</span>`,amtInp]));
         row.appendChild(mkEl('button',{class:'btn p xs',onclick:()=>payOne(s.id,mo,`sai-${s.id}`)},['Pay']));
       }
       c.appendChild(row);
@@ -987,6 +1295,121 @@ async function payOne(staffId,mo,inputId){
   try{
     await POST('/salaries/pay-one',{staff_id:staffId,month:mo,amount:amt>0?amt:undefined});
     toast('Paid.'); refreshAll();
+  }catch(e){ toast(e.message,true); }
+}
+
+async function logHours(staffId,name,mo){
+  let entries=[];
+  try{ entries=await GET(`/hours-log?staff_id=${staffId}&month=${mo}`); }catch(_){}
+
+  const modal=mkEl('div',{class:'modal'});
+  modal.appendChild(mkEl('h3',{},[ `Log hours — ${name}` ]));
+
+  if(entries.length){
+    modal.appendChild(mkEl('div',{style:'font-size:12px;color:var(--t2);margin-bottom:6px'},['Logged entries:']));
+    const list=mkEl('div',{style:'display:flex;flex-direction:column;gap:2px;margin-bottom:14px'});
+    entries.forEach(e=>{
+      const row=mkEl('div',{style:'display:flex;align-items:center;gap:6px;font-size:13px;padding:5px 0;border-bottom:1px solid var(--bdr)'});
+      row.appendChild(mkEl('span',{style:'min-width:84px;color:var(--t2)'},[e.date]));
+      row.appendChild(mkEl('span',{style:'min-width:52px;font-weight:600'},[`${e.hours} hrs`]));
+      row.appendChild(mkEl('span',{style:'flex:1;color:var(--t2);font-size:12px'},[e.note||'']));
+      const editBtn=document.createElement('button');
+      editBtn.className='btn w xs'; editBtn.title='Edit entry'; editBtn.innerHTML='&#9881;';
+      editBtn.style.cssText='padding:4px 7px;line-height:0';
+      editBtn.onclick=()=>editHoursEntry(e.id,e.date,e.hours,e.note||'',staffId,name,mo);
+      row.appendChild(editBtn);
+      row.appendChild(trashBtn(()=>deleteHoursEntry(e.id,staffId,name,mo),'Delete entry'));
+      list.appendChild(row);
+    });
+    modal.appendChild(list);
+    modal.appendChild(mkEl('hr',{style:'border:none;border-top:1px solid var(--bdr);margin:0 0 14px'}));
+  }
+
+  const today=new Date().toISOString().slice(0,10);
+  modal.appendChild(mkEl('label',{},['Date']));
+  modal.appendChild(mkEl('input',{type:'date',id:'lh-date',value:today}));
+  modal.appendChild(mkEl('label',{},['Hours worked']));
+  modal.appendChild(mkEl('input',{type:'number',id:'lh-hrs',placeholder:'e.g. 8',min:'0.25',step:'0.25'}));
+  modal.appendChild(mkEl('label',{},['Note (optional)']));
+  modal.appendChild(mkEl('input',{type:'text',id:'lh-note',placeholder:'e.g. Week of May 5'}));
+
+  const btns=mkEl('div',{class:'mbtns'});
+  const addBtn=mkEl('button',{class:'btn p'},['Add hours']);
+  addBtn.onclick=()=>submitLogHours(staffId,mo,name);
+  const cancelBtn=mkEl('button',{class:'btn'},['Cancel']);
+  cancelBtn.onclick=closeModal;
+  btns.appendChild(addBtn); btns.appendChild(cancelBtn);
+  modal.appendChild(btns);
+
+  $('modal-root').innerHTML='<div class="overlay" onclick="if(event.target===this)closeModal()"></div>';
+  $('modal-root').firstChild.appendChild(modal);
+}
+
+async function submitLogHours(staffId,mo,name){
+  const date=$('lh-date').value, hours=parseFloat($('lh-hrs').value), note=($('lh-note')?.value||'').trim();
+  if(!date||!(hours>0)){ toast('Date and hours required.',true); return; }
+  try{
+    await POST('/hours-log',{staff_id:staffId,month:mo,date,hours,note});
+    toast('Hours logged.'); refreshAll(); logHours(staffId,name,mo);
+  }catch(e){ toast(e.message,true); }
+}
+
+function editHoursEntry(id,date,hours,note,staffId,name,mo){
+  const modal=mkEl('div',{class:'modal'});
+  modal.appendChild(mkEl('h3',{},[ `Edit entry — ${name}` ]));
+  modal.appendChild(mkEl('label',{},['Date']));
+  modal.appendChild(mkEl('input',{type:'date',id:'eh-date',value:date}));
+  modal.appendChild(mkEl('label',{},['Hours worked']));
+  modal.appendChild(mkEl('input',{type:'number',id:'eh-hrs',value:String(hours),min:'0.25',step:'0.25'}));
+  modal.appendChild(mkEl('label',{},['Note (optional)']));
+  modal.appendChild(mkEl('input',{type:'text',id:'eh-note',value:note}));
+  const btns=mkEl('div',{class:'mbtns'});
+  const saveBtn=mkEl('button',{class:'btn p'},['Save']);
+  saveBtn.onclick=()=>submitEditHoursEntry(id,staffId,name,mo);
+  const backBtn=mkEl('button',{class:'btn'},['Back']);
+  backBtn.onclick=()=>logHours(staffId,name,mo);
+  btns.appendChild(saveBtn); btns.appendChild(backBtn);
+  modal.appendChild(btns);
+  $('modal-root').innerHTML='<div class="overlay" onclick="if(event.target===this)closeModal()"></div>';
+  $('modal-root').firstChild.appendChild(modal);
+}
+
+async function submitEditHoursEntry(id,staffId,name,mo){
+  const date=$('eh-date').value, hours=parseFloat($('eh-hrs').value), note=($('eh-note')?.value||'').trim();
+  if(!date||!(hours>0)){ toast('Date and hours required.',true); return; }
+  try{
+    await PATCH(`/hours-log/${id}`,{date,hours,note});
+    toast('Updated.'); refreshAll(); logHours(staffId,name,mo);
+  }catch(e){ toast(e.message,true); }
+}
+
+async function deleteHoursEntry(id,staffId,name,mo){
+  if(!confirm('Delete this hours entry?')) return;
+  try{
+    await DEL(`/hours-log/${id}`);
+    toast('Deleted.'); refreshAll(); logHours(staffId,name,mo);
+  }catch(e){ toast(e.message,true); }
+}
+
+
+function editSalaryExp(id,current,name){
+  showModal(`<div class="modal">
+    <h3>Edit payment — ${name}</h3>
+    <label>Amount paid ($)</label>
+    <input type="number" id="esal-a" value="${current}" min="0.01" step="0.01"/>
+    <div class="mbtns">
+      <button class="btn p" onclick="saveSalaryExp('${id}')">Save</button>
+      <button class="btn" onclick="closeModal()">Cancel</button>
+    </div>
+  </div>`);
+}
+
+async function saveSalaryExp(id){
+  const amount=parseFloat($('esal-a').value);
+  if(!(amount>0)){ toast('Enter a valid amount.',true); return; }
+  try{
+    await PATCH(`/expenses/${id}`,{amount});
+    toast('Updated.'); closeModal(); refreshAll();
   }catch(e){ toast(e.message,true); }
 }
 
@@ -1135,39 +1558,48 @@ async function deletePeriod(id){
   catch(e){ toast(e.message,true); }
 }
 
-function openAdjModal(roomId,periodId,balance){
+function openAdjModal(roomId,periodId,balance,effectiveDate){
   const rm=ROOMS.find(r=>r.id===roomId);
   const isNeg=balance<-0.005, isPos=balance>0.005, abs=Math.abs(balance).toFixed(2);
-  const opts=isNeg
-    ?`<option value="forgiven">Forgive (partial or full)</option><option value="writeoff">Write off as bad debt</option><option value="keep">Leave open in books</option>`
-    :isPos
-    ?`<option value="refund">Issue refund</option><option value="keep">Leave credit open</option>`
-    :`<option value="forgiven">Forgive balance</option><option value="charge">Add charge</option><option value="writeoff">Write off</option>`;
+  const balanceLine=isNeg?`Balance owed: <strong>${'$'+abs}</strong>`
+    :isPos?`Credit on account: <strong>${'$'+abs}</strong>`
+    :'No outstanding balance.';
+  // Charge is always available; other options depend on the balance state
+  const opts=[
+    `<option value="charge">Add charge</option>`,
+    isNeg?`<option value="forgiven">Forgive balance (partial or full)</option>`:
+          `<option value="forgiven">Forgive amount</option>`,
+    isNeg?`<option value="writeoff">Write off as bad debt</option>`:
+          `<option value="writeoff">Write off</option>`,
+    isPos?`<option value="refund">Issue refund</option>`:'',
+    `<option value="keep">No action — leave as-is</option>`,
+  ].join('');
   showModal(`<div class="modal">
-    <h3>${isNeg?'Balance owed: $'+abs:isPos?'Credit: $'+abs:'Adjustment'} — ${rm?.building} ${rm?.number}</h3>
-    <p>${isNeg?'How do you want to handle this balance?':isPos?'This tenant has a credit.':'Record a manual adjustment.'}</p>
+    <h3>Adjustment — ${rm?.building} ${rm?.number}</h3>
+    <p style="font-size:13px;color:var(--t2);margin-bottom:4px">${balanceLine}</p>
     <label>Type</label>
-    <select id="adj-t" onchange="$('adj-aw').style.display=this.value==='keep'?'none':'block'">${opts}</select>
-    <div id="adj-aw">
+    <select id="adj-t" onchange="$('adj-aw').style.display=this.value==='keep'?'none':'flex'">${opts}</select>
+    <div id="adj-aw" style="display:flex;flex-direction:column;gap:6px">
       <label>Amount ($)</label>
-      <input type="number" id="adj-a" value="${abs}" min="0.01" step="0.01"/>
+      <input type="number" id="adj-a" value="${isNeg?abs:''}" min="0.01" step="0.01" placeholder="0.00"/>
+      <label>Note</label>
+      <textarea id="adj-n" placeholder="e.g. Carpet damage, pet fee, lease break fee…"></textarea>
     </div>
-    <label>Note (optional)</label>
-    <textarea id="adj-n" placeholder="e.g. Tenant hardship, agreed settlement…"></textarea>
     <div class="mbtns">
-      <button class="btn p" onclick="submitAdj('${roomId}','${periodId}')">Apply</button>
+      <button class="btn p" onclick="submitAdj('${roomId}','${periodId}','${effectiveDate||''}')">Apply</button>
       <button class="btn" onclick="closeModal()">Cancel</button>
     </div>
   </div>`);
 }
 
-async function submitAdj(roomId,periodId){
+async function submitAdj(roomId,periodId,effectiveDate){
   const type=$('adj-t').value;
   if(type==='keep'){ closeModal(); return; }
   const amount=parseFloat($('adj-a').value), note=$('adj-n').value.trim();
   if(!(amount>0)){ toast('Enter a valid amount.',true); return; }
+  const date=effectiveDate||new Date().toISOString().slice(0,10);
   try{
-    await POST('/adjustments',{room_id:roomId,period_id:periodId,type,amount,note,date:new Date().toISOString().slice(0,10)});
+    await POST('/adjustments',{room_id:roomId,period_id:periodId,type,amount,note,date});
     toast('Adjustment recorded.'); closeModal(); refreshAll();
   }catch(e){ toast(e.message,true); }
 }
@@ -1208,10 +1640,11 @@ function renderRooms(){
       const lfSave=mkEl('button',{class:'btn xs',onclick:()=>updateLateFee(room.id,lfTypeId,lfValId)},['Update late fee']);
       lfRow.appendChild(lfSel); lfRow.appendChild(lfInp); lfRow.appendChild(lfSave);
       info.appendChild(lfRow);
-      // Period list
+      // Period list — active period always visible, past periods collapsed
       if(periods.length){
         const pl=mkEl('div',{style:'margin-top:8px'});
-        periods.forEach(p=>{
+
+        function makeProw(p){
           const pr=mkEl('div',{class:'prow'});
           const lbl=p.end_date?`${p.start_date} → ${p.end_date}`:`${p.start_date} → present`;
           pr.innerHTML=`<span style="font-size:12px;color:var(--t2);flex:1">${lbl} · ${fmt(p.rent)}/mo</span>`;
@@ -1224,9 +1657,28 @@ function renderRooms(){
           pr.appendChild(mkEl('button',{class:'btn xs',onclick:async()=>{
             try{ const{balance}=await GET(`/rooms/${room.id}/balance?month=${CUR_MO}`); openAdjModal(room.id,p.id,balance); }
             catch(e){ toast(e.message,true); }
-          }},['Adjust balance']));
-          pl.appendChild(pr);
-        });
+          }},['+ Charge / Adjust']));
+          return pr;
+        }
+
+        const past=periods.filter(p=>p.end_date);
+        const current=periods.find(p=>!p.end_date);
+        if(current) pl.appendChild(makeProw(current));
+
+        if(past.length){
+          const histWrap=mkEl('div',{style:'display:none;margin-top:2px'});
+          past.slice().reverse().forEach(p=>histWrap.appendChild(makeProw(p)));
+          const toggle=mkEl('button',{class:'btn xs',style:'margin-top:4px;font-size:11px;color:var(--t2)'},
+            [`▸ Show history (${past.length})`]);
+          toggle.onclick=()=>{
+            const open=histWrap.style.display!=='none';
+            histWrap.style.display=open?'none':'block';
+            toggle.textContent=(open?'▸':'▾')+` ${open?'Show':'Hide'} history (${past.length})`;
+          };
+          pl.appendChild(toggle);
+          pl.appendChild(histWrap);
+        }
+
         info.appendChild(pl);
       }
       const btns=mkEl('div',{style:'display:flex;flex-direction:column;gap:5px;flex-shrink:0'});
@@ -1253,14 +1705,21 @@ window.submitPeriod=async function(roomId){
 // ─── STAFF ────────────────────────────────────────────────────────────────────
 async function loadStaff(){ STAFF=await GET('/staff'); fillBuildings(); }
 
+document.querySelectorAll('input[name="sfpt"]').forEach(r=>r.addEventListener('change',()=>{
+  $('sfp-lbl').textContent=r.value==='hourly'?'Hourly rate ($/hr)':'Monthly salary ($)';
+}));
+
 async function addStaff(){
   const name=$('sfn').value.trim(), role=$('sfr').value.trim();
-  const bld=(_staffBldForm&&_staffBldForm.length===1)?_staffBldForm[0]:'both';
+  const bld=bldVal(_staffBldForm);
   const pay=parseFloat($('sfp').value);
+  const pay_type=document.querySelector('input[name="sfpt"]:checked')?.value||'salary';
   if(!name||!(pay>0)){ toast('Name and pay required.',true); return; }
   try{
-    await POST('/staff',{name,role,building:bld,pay});
+    await POST('/staff',{name,role,building:bld,pay,pay_type});
     toast('Added.'); ['sfn','sfr','sfp'].forEach(id=>$(id).value='');
+    document.querySelector('input[name="sfpt"][value="salary"]').checked=true;
+    $('sfp-lbl').textContent='Monthly salary ($)';
     await loadStaff(); renderStaff();
   }catch(e){ toast(e.message,true); }
 }
@@ -1287,9 +1746,12 @@ function renderStaff(){
     const av=mkEl('div',{class:'sav'},[ini(s.name)]);
     const info=mkEl('div',{style:'flex:1'},
       [`<div style="font-size:13px;font-weight:600">${s.name}</div>`,
-       `<div style="font-size:11px;color:var(--t2)">${s.role||'—'} · ${s.building==='both'?'Both':s.building}</div>`]);
+       `<div style="font-size:11px;color:var(--t2)">${s.role||'—'} · ${bldDisplay(s.building)}</div>`]);
     const pw=mkEl('div',{style:'display:flex;align-items:center;gap:7px'});
     const btnId='spb-'+s.id;
+    const payLabel=mkEl('span',{style:'font-size:11px;color:var(--t2);margin-right:2px'},
+      [s.pay_type==='hourly'?`$${s.pay}/hr`:`$${s.pay.toLocaleString()}/mo`]);
+    pw.appendChild(payLabel);
     const inp=mkEl('input',{type:'number',value:s.pay,min:'0',step:'0.01',id:'sp-'+s.id,
       style:'width:88px;padding:6px 8px;border:1px solid var(--bdr2);border-radius:var(--r);font-size:13px;font-family:inherit;background:var(--bg);color:var(--text)'});
     inp.addEventListener('input',()=>{
@@ -1300,16 +1762,18 @@ function renderStaff(){
       btn.style.cursor=changed?'':'default';
     });
     pw.appendChild(inp);
-    const updateBtn=mkEl('button',{class:'btn xs',id:btnId,onclick:()=>updateStaffPay(s.id,'sp-'+s.id)},['Update pay']);
+    const updateBtn=mkEl('button',{class:'btn xs',id:btnId,onclick:()=>updateStaffPay(s.id,'sp-'+s.id)},['Update']);
     updateBtn.disabled=true; updateBtn.style.opacity='0.4'; updateBtn.style.cursor='default';
     pw.appendChild(updateBtn);
     pw.appendChild(trashBtn(()=>deleteStaff(s.id),'Remove staff member'));
     row.appendChild(av); row.appendChild(info); row.appendChild(pw);
     c.appendChild(row);
   });
-  const total=STAFF.reduce((s,x)=>s+x.pay,0);
+  const salaryTotal=STAFF.filter(x=>x.pay_type!=='hourly').reduce((s,x)=>s+x.pay,0);
+  const hourlyCount=STAFF.filter(x=>x.pay_type==='hourly').length;
+  const payrollNote=hourlyCount?` + ${hourlyCount} hourly`:'';
   const sum=mkEl('div',{style:'margin-top:10px;padding-top:10px;border-top:1px solid var(--bdr);font-size:12px;color:var(--t2);display:flex;justify-content:space-between'},
-    [`<span>${STAFF.length} staff</span>`,`<span>Monthly payroll: <strong style="color:var(--text)">${fmt(total)}</strong></span>`]);
+    [`<span>${STAFF.length} staff${payrollNote}</span>`,`<span>Salary payroll: <strong style="color:var(--text)">${fmt(salaryTotal)}/mo</strong></span>`]);
   c.appendChild(sum);
 }
 
@@ -1328,21 +1792,44 @@ async function loadDash(){
 
     const STATUS_BADGE={paid:'bg',overpaid:'bb',short:'ba',unpaid:'br'};
     const STATUS_LABEL={paid:'Paid',overpaid:'Overpaid',short:'Short',unpaid:'Unpaid'};
-    const rows=d.rooms.map(rm=>{
+    const rows=[];
+    d.rooms.forEach(rm=>{
       if(rm.status==='vacant'){
         const adjBtn=rm.arrears>0
-          ?`<button class="btn d xs" onclick="openAdjModal('${rm.room_id}','${rm.last_period_id||''}',${-rm.arrears})">Handle</button>`
+          ?`<button class="btn d xs" onclick="openAdjModal('${rm.room_id}','${rm.last_period_id||''}',${-rm.arrears},'${rm.last_period_end_date||''}')">Handle</button>`
           :'—';
-        return`<tr><td>${rm.building}</td><td>${rm.number}</td><td><span class="badge bgr">Vacant</span></td><td>—</td><td>—</td><td>—</td><td>—</td><td>${rm.arrears>0?`<span class="badge br">Arrears ${fmt(rm.arrears)}</span>`:'—'}</td><td>${adjBtn}</td></tr>`;
+        rows.push(`<tr><td>${rm.building}</td><td>${rm.number}</td><td><span class="badge bgr">Vacant</span></td><td>—</td><td>—</td><td>—</td><td>—</td><td>${rm.arrears>0?`<span class="badge br">Arrears ${fmt(rm.arrears)}</span>`:'—'}</td><td>${adjBtn}</td></tr>`);
+        return;
       }
       const bc=STATUS_BADGE[rm.status]||'bgr';
       const sl=STATUS_LABEL[rm.status]||rm.status;
-      const diff=rm.diff;
-      const label=rm.status==='overpaid'?`Overpaid ${fmt(diff)}`:rm.status==='short'?`Short ${fmt(-diff)}`:sl;
+      const label=rm.status==='overpaid'?`Overpaid ${fmt(rm.diff)}`:rm.status==='short'?`Short ${fmt(-rm.diff)}`:sl;
       const carry=rm.carry>0.005?`<span class="badge bg">+${fmt(rm.carry)}</span>`:rm.carry<-0.005?`<span class="badge br">${fmt(rm.carry)}</span>`:'—';
-      const pNote=rm.pro&&!rm.pro.fullMonth?`<br><small style="color:var(--t2)">${rm.pro.days}/${rm.pro.totalDays} days</small>`:'';
-      const action=(rm.status==='short'||rm.status==='unpaid')?`<button class="btn w xs" onclick="openAdjModal('${rm.room_id}','${rm.period?.id||''}',${rm.diff})">Handle</button>`:'—';
-      return`<tr><td>${rm.building}</td><td>${rm.number}</td><td><span class="badge bg">Occupied</span></td><td>${carry}</td><td>${rm.pro?fmt(rm.pro.prorated):'—'}${pNote}</td><td><strong>${fmt(rm.due)}</strong></td><td>${fmt(rm.paid)}</td><td><span class="badge ${bc}">${label}</span></td><td>${action}</td></tr>`;
+      const multiTenant=rm.pro&&rm.pro.multiTenant;
+      const rentCell=multiTenant
+        ?`${fmt(rm.pro.prorated)}<br><small style="color:var(--amb)">2 tenants</small>`
+        :rm.pro?(rm.pro.fullMonth?fmt(rm.pro.prorated):`${fmt(rm.pro.prorated)}<br><small style="color:var(--t2)">${rm.pro.days}/${rm.pro.totalDays} days</small>`):'—';
+      const action=(rm.status==='short'||rm.status==='unpaid')?`<button class="btn w xs" onclick="openAdjModal('${rm.room_id}','${rm.period?.id||''}',${rm.diff})">Adjust</button>`:'—';
+      rows.push(`<tr><td>${rm.building}</td><td>${rm.number}</td><td><span class="badge bg">Occupied</span></td><td>${carry}</td><td>${rentCell}</td><td><strong>${fmt(rm.due)}</strong></td><td>${fmt(rm.paid)}</td><td><span class="badge ${bc}">${label}</span></td><td>${action}</td></tr>`);
+
+      // Per-tenant breakdown row for multi-tenant months
+      if(multiTenant&&rm.periods&&rm.periods.length){
+        const tenantRows=rm.periods.map(x=>{
+          const isOut=!!x.period.end_date;
+          const range=x.period.end_date?`${x.period.start_date} → ${x.period.end_date}`:`${x.period.start_date} → present`;
+          const paidP=x.paidForPeriod||0;
+          const rem=Math.max(0,Math.round((x.pro.prorated-paidP)*100)/100);
+          const tStatus=paidP>=x.pro.prorated-0.005
+            ?`<span class="badge bg" style="font-size:10px">Paid ${fmt(paidP)}</span>`
+            :paidP>0
+              ?`<span class="badge ba" style="font-size:10px">Partial ${fmt(paidP)} / ${fmt(x.pro.prorated)}</span>`
+              :`<span class="badge br" style="font-size:10px">Unpaid</span>`;
+          return`<span style="display:inline-flex;align-items:center;gap:6px;padding:3px 0">`
+            +`<span style="color:var(--t2);font-size:11px">${isOut?'↖ Outgoing':'↘ Incoming'} · ${range} · ${x.pro.days}d × ${fmt(x.pro.rent)}/mo = ${fmt(x.pro.prorated)}</span>`
+            +`${tStatus}</span>`;
+        }).join('<br>');
+        rows.push(`<tr style="background:var(--bg2)"><td colspan="9" style="padding:6px 14px;border-top:none">${tenantRows}</td></tr>`);
+      }
     });
     $('drooms').innerHTML=d.rooms.length
       ?`<table><thead><tr><th>Building</th><th>Room</th><th>Status</th><th>Carry-in</th><th>Rent</th><th>Total Due</th><th>Paid</th><th>Result</th><th style="width:88px">Action</th></tr></thead><tbody>${rows.join('')}</tbody></table>`
@@ -1418,10 +1905,12 @@ async function exportExcel(){
 
     // Room Summary sheet
     if(d.roomSummary?.length){
-      const rows=[['Building','Room','Expected','Collected','Forgiven','Difference']];
-      d.roomSummary.forEach(r=>rows.push([r.building,r.number,r.totalDue,r.totalPaid,r.totalForgiven||0,r.diff]));
-      const totalDue=d.roomSummary.reduce((s,r)=>s+r.totalDue,0);
-      rows.push(['','Total',totalDue,d.totalIncome,'','']);
+      const rows=[['Building','Room','Expected','Collected','Forgiven','Written Off','Difference']];
+      d.roomSummary.forEach(r=>rows.push([r.building,r.number,r.totalDue,r.totalPaid,r.totalForgiven||0,r.totalWriteoff||0,r.diff]));
+      const xlTotalDue=round2(d.roomSummary.reduce((s,r)=>s+r.totalDue,0));
+      const xlTotalPaid=round2(d.roomSummary.reduce((s,r)=>s+r.totalPaid,0));
+      const xlTotalDiff=round2(d.roomSummary.reduce((s,r)=>s+r.diff,0));
+      rows.push(['','Total',xlTotalDue,xlTotalPaid,'','',xlTotalDiff]);
       XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(rows), 'Room Summary');
     }
 
@@ -1429,7 +1918,7 @@ async function exportExcel(){
     if(d.payments?.length){
       const rows=[['Month','Building','Room','Amount','Days Late','Late Fee','Notes']];
       d.payments.forEach(p=>rows.push([fmtMo(p.month),p.building,p.number,p.amount,p.days_late||0,p.late_fee||0,p.notes||'']));
-      rows.push(['','','Total',d.totalIncome,'','','']);
+      rows.push(['','','Total',round2(d.payments.reduce((s,p)=>s+p.amount,0)),'','','']);
       XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(rows), 'Payments');
     }
 
@@ -1437,7 +1926,7 @@ async function exportExcel(){
     if(d.expenses?.length){
       const CAT={advertising:'Advertising',auto_travel:'Auto and Travel',cleaning_maintenance:'Cleaning and Maintenance',commissions:'Commissions',insurance:'Insurance',legal_professional:'Legal and Professional Fees',management_fees:'Management Fees',mortgage_interest:'Mortgage Interest',other_interest:'Other Interest',repairs:'Repairs',supplies:'Supplies',taxes:'Taxes',utilities:'Utilities',depreciation:'Depreciation',other_expenses:'Other Expenses',miles:'Mileage',salaries:'Salaries',refund:'Refunds',writeoff:'Write-offs',misc:'Misc'};
       const rows=[['Month','Building','Category','Description','Amount']];
-      d.expenses.forEach(e=>rows.push([fmtMo(e.month),e.building,CAT[e.category]||e.category,e.description||'',e.amount]));
+      d.expenses.forEach(e=>rows.push([fmtMo(e.month),bldDisplay(e.building),CAT[e.category]||e.category,e.description||'',e.amount]));
       rows.push(['','','','Total',d.totalExpenses]);
       XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(rows), 'Expenses');
     }
@@ -1445,7 +1934,7 @@ async function exportExcel(){
     // Salaries sheet
     if(d.salaries?.length){
       const rows=[['Month','Building','Employee','Amount']];
-      d.salaries.forEach(e=>rows.push([fmtMo(e.month),e.building==='both'?'General':e.building,e.description,e.amount]));
+      d.salaries.forEach(e=>rows.push([fmtMo(e.month),bldDisplay(e.building),e.description,e.amount]));
       rows.push(['','','Total',d.salaries.reduce((s,e)=>s+e.amount,0)]);
       XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(rows), 'Salaries');
     }
@@ -1453,7 +1942,7 @@ async function exportExcel(){
     // Other Income sheet
     if(d.otherIncome?.length){
       const rows=[['Month','Building','Category','Description','Amount']];
-      d.otherIncome.forEach(r=>rows.push([fmtMo(r.month),r.building==='both'?'General':r.building,OI_LABEL[r.category]||r.category,r.description||'',r.amount]));
+      d.otherIncome.forEach(r=>rows.push([fmtMo(r.month),bldDisplay(r.building),OI_LABEL[r.category]||r.category,r.description||'',r.amount]));
       rows.push(['','','','Total',d.otherIncome.reduce((s,r)=>s+r.amount,0)]);
       XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(rows), 'Other Income');
     }
@@ -1473,15 +1962,35 @@ async function exportExcel(){
 }
 
 function buildMonthReport(d,mo){
-  const payments=d.payments.filter(p=>p.month===mo);
-  const expenses=d.expenses.filter(e=>e.month===mo);
+  const payments   =d.payments.filter(p=>p.month===mo);
+  const expenses   =d.expenses.filter(e=>e.month===mo);
   const adjustments=d.adjustments.filter(a=>a.date.startsWith(mo));
-  const ti=payments.reduce((s,p)=>s+p.amount,0);
-  const te=expenses.reduce((s,e)=>s+e.amount,0);
-  // Expected rent for this month from roomSummary is not month-broken-down; compute from raw
-  const sub={...d,payments,expenses,adjustments,
-    totalIncome:ti,totalExpenses:te,net:ti-te,
-    expectedRent:d.roomSummary.reduce((s,r)=>s+(r.totalDue/d.months.length),0)};
+  const otherIncome=(d.otherIncome||[]).filter(r=>r.month===mo);
+
+  const rentTi=payments.reduce((s,p)=>s+p.amount,0);
+  const oiTi  =otherIncome.reduce((s,r)=>s+r.amount,0);
+  const ti    =round2(rentTi+oiTi);
+  const te    =round2(expenses.reduce((s,e)=>s+e.amount,0));
+  const expectedRent=d.monthlyExpectedRent?.[mo]??0;
+
+  // Build a per-month room summary using month-filtered data + per-room expected from server
+  const roomExpected=d.monthlyRoomExpected?.[mo]||{};
+  const roomSummary=(d.roomSummary||[]).map(r=>{
+    const moRent     =round2(roomExpected[r.id]||0);
+    const moPaid     =round2(payments.filter(p=>p.room_id===r.id).reduce((s,p)=>s+p.amount,0));
+    const moForgiven =round2(adjustments.filter(a=>a.room_id===r.id&&a.type==='forgiven').reduce((s,a)=>s+a.amount,0));
+    const moWriteoffs=round2(adjustments.filter(a=>a.room_id===r.id&&a.type==='writeoff').reduce((s,a)=>s+a.amount,0));
+    const moCharged  =round2(adjustments.filter(a=>a.room_id===r.id&&a.type==='charge').reduce((s,a)=>s+a.amount,0));
+    const moRefunds  =round2(adjustments.filter(a=>a.room_id===r.id&&a.type==='refund').reduce((s,a)=>s+a.amount,0));
+    // Net obligation matches dashboard: rent + charges − forgiven − writeoffs − refunds
+    const moDue      =round2(moRent+moCharged-moForgiven-moWriteoffs-moRefunds);
+    const moDiff     =round2(moPaid-moDue);
+    return{...r,totalDue:moDue,totalPaid:moPaid,totalForgiven:moForgiven,
+           totalWriteoff:moWriteoffs,totalCharged:moCharged,diff:moDiff};
+  }).filter(r=>r.totalDue>0||r.totalPaid>0); // skip rooms with no activity this month
+
+  const sub={...d,payments,expenses,adjustments,otherIncome,roomSummary,
+    totalIncome:ti,totalExpenses:te,net:round2(ti-te),expectedRent};
   return `<div style="margin-bottom:2rem">${buildReport(sub,fmtMo(mo)+' — Report')}</div>`;
 }
 
@@ -1493,12 +2002,13 @@ function buildReport(d,titleOverride){
   const rmRows=(d.roomSummary||[]).map(r=>{
     return`<tr><td>${r.building}</td><td>${r.number}</td>
       <td style="text-align:right">${fmt(r.totalDue)}</td>
-      <td style="text-align:right">${fmt(r.totalPaid)}${r.totalForgiven>0.005?`<br><small style="color:var(--amb)">(+${fmt(r.totalForgiven)} forgiven)</small>`:''}</td>
+      <td style="text-align:right">${fmt(r.totalPaid)}${r.totalForgiven>0.005?`<br><small style="color:var(--amb)">(+${fmt(r.totalForgiven)} forgiven)</small>`:''}${(r.totalWriteoff||0)>0.005?`<br><small style="color:var(--t2)">(+${fmt(r.totalWriteoff)} written off)</small>`:''}</td>
       <td style="text-align:right;color:${r.diff>=0?'var(--grn)':'var(--red)'}">
         ${r.diff>=0?'+':''}${fmt(r.diff)}</td></tr>`;
   }).join('');
-  const totalDue=(d.roomSummary||[]).reduce((s,r)=>s+r.totalDue,0);
-  const incDiff=d.totalIncome-totalDue;
+  const totalDue=round2((d.roomSummary||[]).reduce((s,r)=>s+r.totalDue,0));
+  const totalRentCollected=round2((d.roomSummary||[]).reduce((s,r)=>s+r.totalPaid,0));
+  const incDiff=round2((d.roomSummary||[]).reduce((s,r)=>s+r.diff,0));
   const _expGroups={};
   (d.expenses||[]).forEach(e=>{if(!_expGroups[e.category])_expGroups[e.category]=[];_expGroups[e.category].push(e);});
   const expDetailRows=Object.entries(_expGroups).map(([cat,items])=>{
@@ -1510,7 +2020,7 @@ function buildReport(d,titleOverride){
   const adjRows=(d.adjustments||[]).map(a=>
     `<tr><td>${a.date}</td><td>${a.building} ${a.number}</td><td>${a.type==='forgiven'?'Forgiven (offsets income)':a.type==='writeoff'?'Written off (bad debt)':a.type==='charge'?'Extra charge':'Refund'}</td><td style="text-align:right">${fmt(a.amount)}</td><td>${a.note||'—'}</td></tr>`
   ).join('');
-  const salRows=(d.salaries||[]).map(e=>`<tr><td>${fmtMo(e.month)}</td><td>${e.building==='both'?'General':e.building}</td><td>${e.description}</td><td style="text-align:right">${fmt(e.amount)}</td></tr>`).join('');
+  const salRows=(d.salaries||[]).map(e=>`<tr><td>${fmtMo(e.month)}</td><td>${bldDisplay(e.building)}</td><td>${e.description}</td><td style="text-align:right">${fmt(e.amount)}</td></tr>`).join('');
   const salTotal=(d.salaries||[]).reduce((s,e)=>s+e.amount,0);
   const payRows=(d.payments||[]).map(p=>`<tr><td>${fmtMo(p.month)}</td><td>${p.building}</td><td>${p.number}</td><td style="text-align:right">${fmt(p.amount)}</td><td>${p.notes||'—'}</td></tr>`).join('');
   const th=(cols,right=[])=>cols.map(c=>`<th style="text-align:${right.includes(c)?'right':'left'}">${c}</th>`).join('');
@@ -1523,11 +2033,11 @@ function buildReport(d,titleOverride){
     .map(([l,v,c])=>`<div class="rsb"><div class="rl">${l}</div><div class="rv" style="${c?'color:'+c:''}">${v}</div></div>`).join('')}
   </div>
   ${forgivenTotal>0.005?`<p style="font-size:12px;color:var(--amb);margin:-8px 0 14px">Forgiven this period: ${fmt(forgivenTotal)} — offsets income shortfall, not counted as expense.</p>`:''}
-  ${rmRows?`<div class="rsec"><div class="rsl">Room summary</div><table class="rt"><thead><tr>${th(['Building','Room','Expected','Collected / forgiven','Difference'],['Expected','Collected / forgiven','Difference'])}</tr></thead><tbody>${rmRows}</tbody>${trow}<td colspan="2">Total</td><td style="text-align:right">${fmt(totalDue)}</td><td style="text-align:right">${fmt(d.totalIncome)}${forgivenTotal>0.005?`<br><small style="color:var(--amb)">+${fmt(forgivenTotal)} forgiven</small>`:''}</td><td style="text-align:right;color:${incDiff>=0?'var(--grn)':'var(--red)'}">${incDiff>=0?'+':''}${fmt(incDiff)}</td></tr></tfoot></table></div>`:''}
+  ${rmRows?`<div class="rsec"><div class="rsl">Room summary</div><table class="rt"><thead><tr>${th(['Building','Room','Expected','Collected / forgiven','Difference'],['Expected','Collected / forgiven','Difference'])}</tr></thead><tbody>${rmRows}</tbody>${trow}<td colspan="2">Total</td><td style="text-align:right">${fmt(totalDue)}</td><td style="text-align:right">${fmt(totalRentCollected)}${forgivenTotal>0.005?`<br><small style="color:var(--amb)">+${fmt(forgivenTotal)} forgiven</small>`:''}</td><td style="text-align:right;color:${incDiff>=0?'var(--grn)':'var(--red)'}">${incDiff>=0?'+':''}${fmt(incDiff)}</td></tr></tfoot></table></div>`:''}
   ${expDetailRows?`<div class="rsec"><div class="rsl">Expense breakdown</div><table class="rt"><thead><tr>${th(['Category','Description','Amount'],['Amount'])}</tr></thead><tbody>${expDetailRows}</tbody>${trow}<td colspan="2">Total expenses</td><td style="text-align:right">${fmt(d.totalExpenses)}</td></tr></tfoot></table></div>`:''}
   ${adjRows?`<div class="rsec"><div class="rsl">Adjustment ledger</div><p style="font-size:12px;color:var(--t2);margin-bottom:8px">Forgiven amounts offset income; write-offs are separate expense entries in the breakdown above.</p><table class="rt"><thead><tr>${th(['Date','Room','Type','Amount','Note'],['Amount'])}</tr></thead><tbody>${adjRows}</tbody></table></div>`:''}
   ${salRows?`<div class="rsec"><div class="rsl">Salary detail</div><table class="rt"><thead><tr>${th(['Month','Building','Employee','Amount'],['Amount'])}</tr></thead><tbody>${salRows}</tbody>${trow}<td colspan="3">Total salaries</td><td style="text-align:right">${fmt(salTotal)}</td></tr></tfoot></table></div>`:''}
-  ${payRows?`<div class="rsec"><div class="rsl">Payment detail</div><table class="rt"><thead><tr>${th(['Month','Building','Room','Amount','Notes'],['Amount'])}</tr></thead><tbody>${payRows}</tbody>${trow}<td colspan="3">Total income</td><td style="text-align:right">${fmt(d.totalIncome)}</td><td></td></tr></tfoot></table></div>`:''}
+  ${payRows?`<div class="rsec"><div class="rsl">Payment detail</div><table class="rt"><thead><tr>${th(['Month','Building','Room','Amount','Notes'],['Amount'])}</tr></thead><tbody>${payRows}</tbody>${trow}<td colspan="3">Total rent collected</td><td style="text-align:right">${fmt(round2((d.payments||[]).reduce((s,p)=>s+p.amount,0)))}</td><td></td></tr></tfoot></table></div>`:''}
   </div>`;
 }
 
@@ -1544,13 +2054,14 @@ async function init(){
   CUR_MO=`${year}-${String(month).padStart(2,'0')}`;
   setPayMo(CUR_MO); $('em').value=CUR_MO; $('sm').value=CUR_MO;
   $('fpm').value=''; $('rf').value=`${year}-01`; $('rt').value=CUR_MO;
+  $('chd').value=new Date().toISOString().slice(0,10);
 
   await checkConn();
   setInterval(checkConn,30000);
 
   try{
     await Promise.all([loadRooms(),loadStaff()]);
-    loadBuildingsFromStorage();
+    await loadBuildings();
     await loadDash();
   }catch(e){ toast('Could not connect to server. Is it running?',true); }
 }
