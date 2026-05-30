@@ -269,6 +269,15 @@ const app = express();
 app.use(express.json());
 app.use(express.static(PUBLIC_DIR));
 
+app.get('/api/now', (req, res) => {
+  const now = new Date();
+  res.json({
+    year:  now.getFullYear(),
+    month: now.getMonth() + 1,
+    iso:   `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`
+  });
+});
+
 // Wrap route handlers — catches sync and async throws, returns clean JSON errors
 function h(fn) {
   return (req, res) => {

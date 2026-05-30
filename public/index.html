@@ -1295,10 +1295,17 @@ function buildReport(d,titleOverride){
 
 // ─── Init ─────────────────────────────────────────────────────────────────────
 async function init(){
-  const now=new Date();
-  CUR_MO=`${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
+  let year, month;
+  try{
+    const t=await GET('/api/now');
+    year=t.year; month=t.month;
+  }catch(e){
+    const fb=new Date();
+    year=fb.getFullYear(); month=fb.getMonth()+1;
+  }
+  CUR_MO=`${year}-${String(month).padStart(2,'0')}`;
   setPayMo(CUR_MO); $('em').value=CUR_MO; $('sm').value=CUR_MO;
-  $('fpm').value=''; $('rf').value=`${now.getFullYear()}-01`; $('rt').value=CUR_MO;
+  $('fpm').value=''; $('rf').value=`${year}-01`; $('rt').value=CUR_MO;
 
   await checkConn();
   setInterval(checkConn,30000);
