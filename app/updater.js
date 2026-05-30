@@ -6,7 +6,8 @@ const path   = require('path');
 const os     = require('os');
 const { execSync } = require('child_process');
 
-const ROOT    = __dirname;
+const ROOT      = __dirname;
+const PROJ_ROOT = path.dirname(ROOT);
 const LOCAL   = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
 const CURRENT = LOCAL.version || '0.0.0';
 
@@ -149,6 +150,16 @@ async function main() {
     console.log(`  Install failed (${e.message}). Continuing with current version.`);
     cleanup(tmpZip, tmpDir);
     process.exit(0);
+  }
+
+  // 6. Sync root-level launcher scripts so start.bat/sh/command stay up to date
+  const LAUNCHERS = ['start.bat', 'start.sh', 'start.command'];
+  for (const launcher of LAUNCHERS) {
+    const src = path.join(tmpDir, subDir, launcher);
+    const dst = path.join(PROJ_ROOT, launcher);
+    if (fs.existsSync(src)) {
+      try { fs.copyFileSync(src, dst); } catch (_) {}
+    }
   }
 
   cleanup(tmpZip, tmpDir);
