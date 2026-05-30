@@ -175,15 +175,15 @@ tbody tr:hover td{background:var(--bg2)}
   <button class="tab"     onclick="go('rooms')">Rooms</button>
   <button class="tab"     onclick="go('staff')">Staff</button>
   <button class="tab"     onclick="go('reports')">Reports</button>
+  <div class="mnav" style="margin-left:auto;border-bottom:none;padding:0">
+    <button class="btn" onclick="shiftMo(-1)">&larr;</button>
+    <span class="mlbl" id="global-mo-lbl">&mdash;</span>
+    <button class="btn" onclick="shiftMo(1)">&rarr;</button>
+  </div>
 </div>
 
 <!-- ── DASHBOARD ── -->
 <div id="tab-dashboard" class="sec on">
-  <div class="mnav">
-    <button class="btn" onclick="shiftMo(-1)">&larr;</button>
-    <span class="mlbl" id="dml">&mdash;</span>
-    <button class="btn" onclick="shiftMo(1)">&rarr;</button>
-  </div>
   <div class="mg" id="dmet"></div>
   <div class="card">
     <div class="ct">Room ledger — <span id="dlbl"></span></div>
@@ -223,7 +223,7 @@ tbody tr:hover td{background:var(--bg2)}
     <div class="sh"><h2>Payment history</h2>
       <div class="frow">
         <div id="fpb-ms"></div>
-        <input type="month" id="fpm" onchange="setGlobalMo(this.value);loadPay()"/>
+        <input type="hidden" id="fpm"/>
       </div>
     </div>
     <div id="pay-tbl"></div>
@@ -256,8 +256,8 @@ tbody tr:hover td{background:var(--bg2)}
           <option value="miles">Miles driven</option>
         </select>
       </div>
-      <div class="fg"><label>Month</label><input type="month" id="em"/></div>
     </div>
+    <input type="hidden" id="em"/>
     <div class="fr">
       <div class="fg">
         <label id="eal">Amount ($)</label>
@@ -272,10 +272,7 @@ tbody tr:hover td{background:var(--bg2)}
   <div class="card">
     <div class="ct">Salary payments</div>
     <div style="display:flex;align-items:center;gap:12px;margin-bottom:1rem;flex-wrap:wrap">
-      <div style="display:flex;align-items:center;gap:8px">
-        <label style="font-size:12px;color:var(--t2);white-space:nowrap">Pay month</label>
-        <input type="month" id="sm" onchange="setGlobalMo(this.value);loadSalRoster()" style="padding:6px 10px;border:1px solid var(--bdr2);border-radius:var(--r);font-size:13px;background:var(--bg);color:var(--text);font-family:inherit"/>
-      </div>
+      <input type="hidden" id="sm"/>
       <button class="btn p xs" onclick="payAllStaff()">Pay all unpaid</button>
     </div>
     <div id="sal-roster"></div>
@@ -308,10 +305,17 @@ tbody tr:hover td{background:var(--bg2)}
           <option value="writeoff">Write-offs</option>
           <option value="misc">Misc (legacy)</option>
         </select>
-        <input type="month" id="fem" onchange="setGlobalMo(this.value);loadExp()"/>
+        <input type="hidden" id="fem"/>
       </div>
     </div>
     <div id="exp-tbl"></div>
+  </div>
+
+  <div class="card">
+    <div class="sh"><h2>Handled balances</h2>
+      <input type="hidden" id="fadj"/>
+    </div>
+    <div id="adj-tbl"></div>
   </div>
 </div>
 
@@ -606,6 +610,14 @@ function fillBuildings(){
   refillRooms();
 }
 
+function refreshAll(){
+  loadDash();
+  loadPay();
+  loadExp();
+  loadAdj();
+  loadSalRoster();
+}
+
 function refillRooms(){
   const bld=$('pb').value;
   $('pr').innerHTML=ROOMS.filter(r=>r.building===bld).map(r=>`<option value="${r.id}">Room ${r.number}</option>`).join('');
@@ -615,19 +627,24 @@ function refillRooms(){
 // ─── Shared month ─────────────────────────────────────────────────────────────
 function setGlobalMo(mo){
   CUR_MO=mo;
+  const lbl=fmtMo(mo);
+  $('global-mo-lbl').textContent=lbl;
+  $('dlbl').textContent=lbl;
   $('fpm').value=mo;
   $('fem').value=mo;
+  $('fadj').value=mo;
+  $('em').value=mo;
   $('sm').value=mo;
-  $('pm').value=mo;
-  $('pm-lbl').textContent=fmtMo(mo);
+  $('pm').value=mo; $('pm-lbl').textContent=lbl;
   payPreview();
 }
+
 
 // ─── Tab navigation ───────────────────────────────────────────────────────────
 const TAB_ACTIONS = {
   dashboard:()=>loadDash(),
   payments: ()=>loadPay(),
-  expenses: ()=>{ loadExp(); loadSalRoster(); },
+  expenses: ()=>{ loadExp(); loadSalRoster(); loadAdj(); },
   rooms:    ()=>renderRooms(),
   staff:    ()=>renderStaff(),
   reports:  ()=>{}
@@ -651,7 +668,7 @@ function shiftMo(d){
   const[y,m]=CUR_MO.split('-').map(Number);
   const dt=new Date(Date.UTC(y,m-1+d,1));
   setGlobalMo(`${dt.getUTCFullYear()}-${String(dt.getUTCMonth()+1).padStart(2,'0')}`);
-  loadDash();
+  refreshAll();
 }
 
 // ─── Payment preview ──────────────────────────────────────────────────────────
@@ -698,14 +715,13 @@ async function recPay(){
   try{
     await POST('/payments',{room_id:rid,month:mo,amount:amt,notes,days_late:daysLate,late_fee:_previewLateFee});
     toast('Payment recorded.');
-    $('pa').value=''; $('pn').value=''; $('pdl').value='0'; _previewLateFee=0; payPreview(); loadPay();
-    if($('tab-dashboard').classList.contains('on')) loadDash();
+    $('pa').value=''; $('pn').value=''; $('pdl').value='0'; _previewLateFee=0; payPreview(); refreshAll();
   }catch(e){ toast(e.message,true); }
 }
 
 async function delPay(id){
   if(!confirm('Delete this payment?')) return;
-  try{ await DEL(`/payments/${id}`); toast('Deleted.'); loadPay(); loadDash(); }
+  try{ await DEL(`/payments/${id}`); toast('Deleted.'); refreshAll(); }
   catch(e){ toast(e.message,true); }
 }
 
@@ -754,14 +770,13 @@ async function recExp(){
     await POST('/expenses',body);
     toast('Expense recorded.');
     $('ea').value=''; $('ed').value=''; $('mhint').style.display='none';
-    loadExp();
-    if($('tab-dashboard').classList.contains('on')) loadDash();
+    refreshAll();
   }catch(e){ toast(e.message,true); }
 }
 
 async function delExp(id){
   if(!confirm('Delete this expense?')) return;
-  try{ await DEL(`/expenses/${id}`); toast('Deleted.'); loadExp(); loadDash(); }
+  try{ await DEL(`/expenses/${id}`); toast('Deleted.'); refreshAll(); }
   catch(e){ toast(e.message,true); }
 }
 
@@ -793,6 +808,72 @@ async function loadExp(){
     });
     t.appendChild(tb); $('exp-tbl').innerHTML=''; $('exp-tbl').appendChild(t);
   }catch(e){ $('exp-tbl').innerHTML=`<div class="empty">${e.message}</div>`; }
+}
+
+// ─── ADJUSTMENTS LIST ─────────────────────────────────────────────────────────
+const ADJ_LABEL={forgiven:'Forgiven',writeoff:'Write-off',charge:'Extra charge',refund:'Refund'};
+const ADJ_BC   ={forgiven:'ba',writeoff:'bpu',charge:'br',refund:'bb'};
+
+async function loadAdj(){
+  const mo=$('fadj').value||CUR_MO;
+  const c=$('adj-tbl');
+  try{
+    const rows=await GET(`/adjustments?month=${mo}`);
+    if(!rows.length){ c.innerHTML='<div class="empty">No adjustments this month.</div>'; return; }
+    const t=document.createElement('table');
+    t.innerHTML=`<thead><tr><th>Date</th><th>Building</th><th>Room</th><th>Type</th><th>Amount</th><th>Note</th><th style="width:80px"></th></tr></thead>`;
+    const tb=document.createElement('tbody');
+    rows.forEach(a=>{
+      const tr=document.createElement('tr');
+      tr.innerHTML=`<td>${a.date}</td><td>${a.building}</td><td>${a.number}</td>
+        <td><span class="badge ${ADJ_BC[a.type]||'bgr'}">${ADJ_LABEL[a.type]||a.type}</span></td>
+        <td>${fmt(a.amount)}</td>
+        <td style="color:var(--t2)">${a.note||'—'}</td><td></td>`;
+      const wrap=document.createElement('div');
+      wrap.style='display:flex;gap:4px';
+      const editBtn=document.createElement('button');
+      editBtn.className='btn w xs'; editBtn.textContent='Edit';
+      editBtn.onclick=()=>editAdj(a);
+      const delBtn=trashBtn(()=>delAdj(a.id),'Delete adjustment');
+      wrap.appendChild(editBtn); wrap.appendChild(delBtn);
+      tr.lastElementChild.appendChild(wrap);
+      tb.appendChild(tr);
+    });
+    t.appendChild(tb); c.innerHTML=''; c.appendChild(t);
+  }catch(e){ c.innerHTML=`<div class="empty">${e.message}</div>`; }
+}
+
+function editAdj(a){
+  showModal(`<div class="modal">
+    <h3>Edit adjustment — ${a.building} ${a.number}</h3>
+    <label>Type</label>
+    <div><span class="badge ${ADJ_BC[a.type]||'bgr'}">${ADJ_LABEL[a.type]||a.type}</span></div>
+    <label style="margin-top:12px">Amount ($)</label>
+    <input type="number" id="eadj-a" value="${a.amount}" min="0.01" step="0.01"/>
+    <label>Note</label>
+    <textarea id="eadj-n">${a.note||''}</textarea>
+    <div class="mbtns">
+      <button class="btn p" onclick="saveAdj('${a.id}')">Save</button>
+      <button class="btn" onclick="closeModal()">Cancel</button>
+    </div>
+  </div>`);
+}
+
+async function saveAdj(id){
+  const amount=parseFloat($('eadj-a').value), note=$('eadj-n').value.trim();
+  if(!(amount>0)){ toast('Enter a valid amount.',true); return; }
+  try{
+    await PATCH(`/adjustments/${id}`,{amount,note});
+    toast('Updated.'); closeModal(); refreshAll();
+  }catch(e){ toast(e.message,true); }
+}
+
+async function delAdj(id){
+  if(!confirm('Delete this adjustment?')) return;
+  try{
+    await DEL(`/adjustments/${id}`);
+    toast('Deleted.'); refreshAll();
+  }catch(e){ toast(e.message,true); }
 }
 
 // ─── SALARY ROSTER ────────────────────────────────────────────────────────────
@@ -838,14 +919,13 @@ async function payOne(staffId,mo,inputId){
   const amt=parseFloat($(inputId)?.value);
   try{
     await POST('/salaries/pay-one',{staff_id:staffId,month:mo,amount:amt>0?amt:undefined});
-    toast('Paid.'); loadSalRoster(); loadExp();
-    if($('tab-dashboard').classList.contains('on')) loadDash();
+    toast('Paid.'); refreshAll();
   }catch(e){ toast(e.message,true); }
 }
 
 async function undoPay(expId,mo){
   if(!confirm('Remove this salary payment?')) return;
-  try{ await DEL(`/expenses/${expId}`); toast('Removed.'); loadSalRoster(); loadExp(); loadDash(); }
+  try{ await DEL(`/expenses/${expId}`); toast('Removed.'); refreshAll(); }
   catch(e){ toast(e.message,true); }
 }
 
@@ -855,8 +935,7 @@ async function payAllStaff(){
   try{
     const created=await POST('/salaries/pay-all',{month:mo});
     toast(`Paid ${created.length} staff member${created.length!==1?'s':''}.`);
-    loadSalRoster(); loadExp();
-    if($('tab-dashboard').classList.contains('on')) loadDash();
+    refreshAll();
   }catch(e){ toast(e.message,true); }
 }
 
@@ -880,7 +959,7 @@ async function addRoom(){
 async function updateBaseRent(id,inputId){
   const val=parseFloat($(inputId).value);
   if(!(val>0)){ toast('Enter a valid amount.',true); return; }
-  try{ await PATCH(`/rooms/${id}`,{base_rent:val}); toast('Updated.'); await loadRooms(); renderRooms(); }
+  try{ await PATCH(`/rooms/${id}`,{base_rent:val}); toast('Updated.'); await loadRooms(); renderRooms(); refreshAll(); }
   catch(e){ toast(e.message,true); }
 }
 
@@ -890,13 +969,13 @@ async function updateLateFee(roomId,typeId,valId){
   if(type&&!(val>0)){ toast('Enter a valid late fee value.',true); return; }
   try{
     await PATCH(`/rooms/${roomId}`,{late_fee_type:type||null,late_fee_value:val});
-    toast('Late fee updated.'); await loadRooms(); renderRooms();
+    toast('Late fee updated.'); await loadRooms(); renderRooms(); refreshAll();
   }catch(e){ toast(e.message,true); }
 }
 
 async function deleteRoom(id){
   if(!confirm('Delete this room and all its data?')) return;
-  try{ await DEL(`/rooms/${id}`); toast('Room deleted.'); await loadRooms(); renderRooms(); loadDash(); }
+  try{ await DEL(`/rooms/${id}`); toast('Room deleted.'); await loadRooms(); renderRooms(); refreshAll(); }
   catch(e){ toast(e.message,true); }
 }
 
@@ -921,7 +1000,7 @@ async function submitPeriod(roomId){
   if(!start||!(rent>0)){ toast('Fill in all fields.',true); return; }
   try{
     await POST(`/rooms/${roomId}/periods`,{rent,start_date:start});
-    toast('Occupancy added.'); closeModal(); await loadRooms(); renderRooms(); loadDash();
+    toast('Occupancy added.'); closeModal(); await loadRooms(); renderRooms(); refreshAll();
   }catch(e){ toast(e.message,true); }
 }
 
@@ -945,7 +1024,7 @@ async function submitMoveOut(periodId,roomId){
   const isFuture=end>new Date().toISOString().slice(0,10);
   try{
     const{balance}=await PATCH(`/periods/${periodId}/moveout`,{end_date:end});
-    closeModal(); await loadRooms(); renderRooms(); loadDash();
+    closeModal(); await loadRooms(); renderRooms(); refreshAll();
     if(isFuture){
       toast(`Move-out set for ${end}. Record payments as normal until then.`);
     } else if(Math.abs(balance)>0.005){
@@ -979,13 +1058,13 @@ async function submitEditPeriod(periodId, roomId){
   if(!start||!(rent>0)){ toast('Move-in date and rent are required.',true); return; }
   try{
     await PATCH(`/periods/${periodId}`,{start_date:start, end_date:end, rent});
-    toast('Occupancy updated.'); closeModal(); await loadRooms(); renderRooms(); loadDash();
+    toast('Occupancy updated.'); closeModal(); await loadRooms(); renderRooms(); refreshAll();
   }catch(e){ toast(e.message,true); }
 }
 
 async function deletePeriod(id){
   if(!confirm('Delete this occupancy period?')) return;
-  try{ await DEL(`/periods/${id}`); toast('Deleted.'); await loadRooms(); renderRooms(); loadDash(); }
+  try{ await DEL(`/periods/${id}`); toast('Deleted.'); await loadRooms(); renderRooms(); refreshAll(); }
   catch(e){ toast(e.message,true); }
 }
 
@@ -1022,8 +1101,7 @@ async function submitAdj(roomId,periodId){
   if(!(amount>0)){ toast('Enter a valid amount.',true); return; }
   try{
     await POST('/adjustments',{room_id:roomId,period_id:periodId,type,amount,note,date:new Date().toISOString().slice(0,10)});
-    toast('Adjustment recorded.'); closeModal(); loadDash();
-    if($('tab-expenses').classList.contains('on')) loadExp();
+    toast('Adjustment recorded.'); closeModal(); refreshAll();
   }catch(e){ toast(e.message,true); }
 }
 
@@ -1101,7 +1179,7 @@ window.submitPeriod=async function(roomId){
   if(!start||!(rent>0)){ toast('Fill in all fields.',true); return; }
   try{
     await POST(`/rooms/${roomId}/periods`,{rent,start_date:start});
-    toast('Occupancy added.'); closeModal(); await loadRooms(); renderRooms(); loadDash();
+    toast('Occupancy added.'); closeModal(); await loadRooms(); renderRooms(); refreshAll();
   }catch(e){ toast(e.message,true); }
 };
 
@@ -1170,7 +1248,6 @@ function renderStaff(){
 
 // ─── DASHBOARD ────────────────────────────────────────────────────────────────
 async function loadDash(){
-  $('dml').textContent=fmtMo(CUR_MO);
   $('dlbl').textContent=fmtMo(CUR_MO);
   try{
     const d=await GET(`/dashboard/${CUR_MO}`);
@@ -1187,7 +1264,7 @@ async function loadDash(){
         const adjBtn=rm.arrears>0
           ?`<button class="btn d xs" onclick="openAdjModal('${rm.room_id}','${rm.last_period_id||''}',${-rm.arrears})">Handle</button>`
           :'—';
-        return`<tr><td>${rm.building}</td><td>${rm.number}</td><td><span class="badge bgr">Vacant</span></td><td>—</td><td>—</td><td>—</td><td>${rm.arrears>0?`<span class="badge br">Arrears ${fmt(rm.arrears)}</span>`:'—'}</td><td>${adjBtn}</td></tr>`;
+        return`<tr><td>${rm.building}</td><td>${rm.number}</td><td><span class="badge bgr">Vacant</span></td><td>—</td><td>—</td><td>—</td><td>—</td><td>${rm.arrears>0?`<span class="badge br">Arrears ${fmt(rm.arrears)}</span>`:'—'}</td><td>${adjBtn}</td></tr>`;
       }
       const bc=STATUS_BADGE[rm.status]||'bgr';
       const sl=STATUS_LABEL[rm.status]||rm.status;
@@ -1196,10 +1273,10 @@ async function loadDash(){
       const carry=rm.carry>0.005?`<span class="badge bg">+${fmt(rm.carry)}</span>`:rm.carry<-0.005?`<span class="badge br">${fmt(rm.carry)}</span>`:'—';
       const pNote=rm.pro&&!rm.pro.fullMonth?`<br><small style="color:var(--t2)">${rm.pro.days}/${rm.pro.totalDays} days</small>`:'';
       const action=(rm.status==='short'||rm.status==='unpaid')?`<button class="btn w xs" onclick="openAdjModal('${rm.room_id}','${rm.period?.id||''}',${rm.diff})">Handle</button>`:'—';
-      return`<tr><td>${rm.building}</td><td>${rm.number}</td><td><span class="badge bg">Occupied</span></td><td>${rm.pro?fmt(rm.pro.prorated):'—'}${pNote}</td><td>${carry}</td><td>${fmt(rm.paid)}</td><td><span class="badge ${bc}">${label}</span></td><td>${action}</td></tr>`;
+      return`<tr><td>${rm.building}</td><td>${rm.number}</td><td><span class="badge bg">Occupied</span></td><td>${carry}</td><td>${rm.pro?fmt(rm.pro.prorated):'—'}${pNote}</td><td><strong>${fmt(rm.due)}</strong></td><td>${fmt(rm.paid)}</td><td><span class="badge ${bc}">${label}</span></td><td>${action}</td></tr>`;
     });
     $('drooms').innerHTML=d.rooms.length
-      ?`<table><thead><tr><th>Building</th><th>Room</th><th>Status</th><th>Due</th><th>Carry-in</th><th>Paid</th><th>Result</th><th style="width:88px">Action</th></tr></thead><tbody>${rows.join('')}</tbody></table>`
+      ?`<table><thead><tr><th>Building</th><th>Room</th><th>Status</th><th>Carry-in</th><th>Rent</th><th>Total Due</th><th>Paid</th><th>Result</th><th style="width:88px">Action</th></tr></thead><tbody>${rows.join('')}</tbody></table>`
       :'<div class="empty">No rooms configured.</div>';
 
     // Recent panels

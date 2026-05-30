@@ -106,6 +106,7 @@ db.exec(`
   'ALTER TABLE rooms    ADD COLUMN late_fee_value REAL',
   'ALTER TABLE payments ADD COLUMN days_late INTEGER NOT NULL DEFAULT 0',
   'ALTER TABLE payments ADD COLUMN late_fee   REAL    NOT NULL DEFAULT 0',
+  'ALTER TABLE staff    ADD COLUMN deleted INTEGER NOT NULL DEFAULT 0',
 ].forEach(sql => { try { db.exec(sql); } catch (_) {} });
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -468,7 +469,7 @@ app.delete('/api/payments/:id', h((req, res) => {
 // ─── STAFF ────────────────────────────────────────────────────────────────────
 
 app.get('/api/staff', h((req, res) => {
-  res.json(db.prepare('SELECT * FROM staff ORDER BY name').all());
+  res.json(db.prepare('SELECT * FROM staff WHERE deleted=0 ORDER BY name').all());
 }));
 
 app.post('/api/staff', h((req, res) => {
@@ -490,7 +491,7 @@ app.patch('/api/staff/:id', h((req, res) => {
 }));
 
 app.delete('/api/staff/:id', h((req, res) => {
-  const info = db.prepare('DELETE FROM staff WHERE id=?').run(req.params.id);
+  const info = db.prepare('UPDATE staff SET deleted=1 WHERE id=? AND deleted=0').run(req.params.id);
   if (!info.changes) return notFound(res, 'Staff member');
   res.json({ ok: true });
 }));
@@ -591,12 +592,17 @@ app.post('/api/salaries/pay-all', h((req, res) => {
 app.get('/api/salaries/status', h((req, res) => {
   const { month } = req.query;
   if (!month) return badReq(res, 'month required');
-  const allStaff    = db.prepare('SELECT * FROM staff ORDER BY name').all();
+  const activeStaff = db.prepare('SELECT * FROM staff WHERE deleted=0 ORDER BY name').all();
   const paidExpenses= db.prepare(
     "SELECT * FROM expenses WHERE category='salaries' AND month=? AND staff_id IS NOT NULL"
   ).all(month);
   const paidMap = {};
   paidExpenses.forEach(e => { paidMap[e.staff_id] = e; });
+  // Include deleted staff only if they have a paid expense this month
+  const deletedWithPay = db.prepare(
+    "SELECT s.* FROM staff s INNER JOIN expenses e ON e.staff_id=s.id WHERE s.deleted=1 AND e.category='salaries' AND e.month=? ORDER BY s.name"
+  ).all(month);
+  const allStaff = [...activeStaff, ...deletedWithPay.filter(d => !activeStaff.find(a => a.id===d.id))];
   res.json(allStaff.map(s => ({ ...s, paid_expense: paidMap[s.id] || null })));
 }));
 
@@ -650,6 +656,14 @@ app.post('/api/adjustments', h((req, res) => {
   res.status(201).json(result);
 }));
 
+app.patch('/api/adjustments/:id', h((req, res) => {
+  const { amount, note } = req.body;
+  if (!(amount > 0)) return badReq(res, 'amount required');
+  const info = db.prepare('UPDATE adjustments SET amount=?, note=? WHERE id=?').run(amount, note || '', req.params.id);
+  if (!info.changes) return notFound(res, 'Adjustment');
+  res.json(db.prepare('SELECT * FROM adjustments WHERE id=?').get(req.params.id));
+}));
+
 app.delete('/api/adjustments/:id', h((req, res) => {
   const info = db.prepare('DELETE FROM adjustments WHERE id=?').run(req.params.id);
   if (!info.changes) return notFound(res, 'Adjustment');
@@ -697,13 +711,17 @@ app.get('/api/dashboard/:month', h((req, res) => {
       };
     }
 
-    const pro   = proratedRent(period, month);
-    const carry = roomBalance(room.id, pm);
-    const paid  = db.prepare('SELECT COALESCE(SUM(amount),0) AS t FROM payments WHERE room_id=? AND month=?').get(room.id, month).t;
-    const due   = round2(pro.prorated - carry);
-    const diff  = round2(paid - due);
+    const pro       = proratedRent(period, month);
+    const carry     = roomBalance(room.id, pm);
+    const paid      = db.prepare('SELECT COALESCE(SUM(amount),0) AS t FROM payments WHERE room_id=? AND month=?').get(room.id, month).t;
+    const forgiven  = db.prepare(`SELECT COALESCE(SUM(amount),0) AS t FROM adjustments WHERE room_id=? AND period_id=? AND type='forgiven' AND substr(date,1,7)=?`).get(room.id, period.id, month).t;
+    const charged   = db.prepare(`SELECT COALESCE(SUM(amount),0) AS t FROM adjustments WHERE room_id=? AND period_id=? AND type='charge' AND substr(date,1,7)=?`).get(room.id, period.id, month).t;
+    const writeoff  = db.prepare(`SELECT COALESCE(SUM(amount),0) AS t FROM adjustments WHERE room_id=? AND period_id=? AND type='writeoff' AND substr(date,1,7)=?`).get(room.id, period.id, month).t;
+    const due       = round2(pro.prorated - carry);
+    const effective = round2(paid + forgiven + writeoff - charged);
+    const diff      = round2(effective - due);
 
-    const status = paid === 0 && due > 0.005 ? 'unpaid'
+    const status = effective === 0 && due > 0.005 ? 'unpaid'
       : Math.abs(diff) < 0.01 ? 'paid'
       : diff > 0.005           ? 'overpaid'
       :                          'short';
@@ -711,6 +729,7 @@ app.get('/api/dashboard/:month', h((req, res) => {
     return {
       room_id: room.id, building: room.building, number: room.number,
       base_rent: room.base_rent, status, period, pro, carry, paid, due, diff,
+      forgiven, charged, writeoff,
       arrears: 0, last_period_id: null
     };
   });
