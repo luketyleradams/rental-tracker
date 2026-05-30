@@ -7,21 +7,6 @@ echo.
 
 cd /d "%~dp0"
 
-:: ── 0. Auto-update from GitHub ───────────────────────────────────────────────
-where git >nul 2>&1
-if %errorlevel% equ 0 (
-  if exist ".git" (
-    echo  Checking for updates...
-    git pull --quiet
-    if !errorlevel! equ 0 (
-      echo  Up to date.
-    ) else (
-      echo  Update failed. Continuing with current version.
-    )
-    echo.
-  )
-)
-
 :: ── 1. Find Node.js ──────────────────────────────────────────────────────────
 :: Prefer local portable copy; accept system install only if version >= 18;
 :: otherwise auto-download a portable copy (no admin required).
@@ -74,9 +59,17 @@ set "PATH=%NODE_DEST%;%PATH%"
 echo  Node.js ready.
 echo.
 
-:: ── 3. Install / repair dependencies ─────────────────────────────────────────
+:: ── 3. Auto-update ────────────────────────────────────────────────────────────
 :have_node
 
+node updater.js
+if !errorlevel! equ 42 (
+  echo  Refreshing dependencies after update...
+  echo.
+  if exist "node_modules" rmdir /s /q "node_modules"
+)
+
+:: ── 4. Install / repair dependencies ─────────────────────────────────────────
 if exist "node_modules" (
   node -e "require('better-sqlite3')" >nul 2>&1
   if !errorlevel! neq 0 (
@@ -104,7 +97,7 @@ if not exist "node_modules" (
   echo.
 )
 
-:: ── 4. Check port ─────────────────────────────────────────────────────────────
+:: ── 5. Check port ─────────────────────────────────────────────────────────────
 netstat -ano | findstr ":3000 " | findstr "LISTENING" >nul 2>&1
 if %errorlevel% equ 0 (
   echo  Port 3000 is already in use. The app may already be running.
@@ -115,7 +108,7 @@ if %errorlevel% equ 0 (
   exit /b 0
 )
 
-:: ── 5. Start server and open browser ─────────────────────────────────────────
+:: ── 6. Start server and open browser ─────────────────────────────────────────
 echo  Server starting...
 echo.
 echo  Leave this window open while using the app.
