@@ -1195,7 +1195,7 @@ async function loadDash(){
       const label=rm.status==='overpaid'?`Overpaid ${fmt(diff)}`:rm.status==='short'?`Short ${fmt(-diff)}`:sl;
       const carry=rm.carry>0.005?`<span class="badge bg">+${fmt(rm.carry)}</span>`:rm.carry<-0.005?`<span class="badge br">${fmt(rm.carry)}</span>`:'—';
       const pNote=rm.pro&&!rm.pro.fullMonth?`<br><small style="color:var(--t2)">${rm.pro.days}/${rm.pro.totalDays} days</small>`:'';
-      const action=rm.status==='short'?`<button class="btn w xs" onclick="openAdjModal('${rm.room_id}','${rm.period?.id||''}',${rm.diff})">Handle</button>`:'—';
+      const action=(rm.status==='short'||rm.status==='unpaid')?`<button class="btn w xs" onclick="openAdjModal('${rm.room_id}','${rm.period?.id||''}',${rm.diff})">Handle</button>`:'—';
       return`<tr><td>${rm.building}</td><td>${rm.number}</td><td><span class="badge bg">Occupied</span></td><td>${rm.pro?fmt(rm.pro.prorated):'—'}${pNote}</td><td>${carry}</td><td>${fmt(rm.paid)}</td><td><span class="badge ${bc}">${label}</span></td><td>${action}</td></tr>`;
     });
     $('drooms').innerHTML=d.rooms.length
