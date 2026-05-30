@@ -172,7 +172,7 @@ tbody tr:hover td{background:var(--bg2)}
   <h1><span class="dot"></span> Rental Tracker</h1>
   <div class="status">
     <span class="sdot" id="sdot"></span>
-    <span id="slbl">connecting…</span>
+    <span id="slbl">Starting…</span>
     <button class="btn xs" onclick="doBackup()">&#128190; Backup now</button>
   </div>
 </div>
@@ -497,10 +497,16 @@ function mkEl(tag,attrs={},children=[]){
 async function api(method,path,body){
   const opts={method,headers:{'Content-Type':'application/json'}};
   if(body!==undefined) opts.body=JSON.stringify(body);
-  const res=await fetch('/api'+path,opts);
-  const data=await res.json();
-  if(!res.ok) throw new Error(data.error||`HTTP ${res.status}`);
-  return data;
+  try{
+    const res=await fetch('/api'+path,opts);
+    const data=await res.json();
+    if(!res.ok) throw new Error(data.error||`HTTP ${res.status}`);
+    return data;
+  }catch(e){
+    // If the request failed at the network level the app stopped — update dot immediately
+    if(e instanceof TypeError) checkConn();
+    throw e;
+  }
 }
 const GET  = p     => api('GET',p);
 const POST = (p,b) => api('POST',p,b);
@@ -509,8 +515,8 @@ const DEL  = p     => api('DELETE',p);
 
 // ─── Connection status ────────────────────────────────────────────────────────
 async function checkConn(){
-  try{ await GET('/health'); $('sdot').className='sdot ok'; $('slbl').textContent='Connected'; }
-  catch{ $('sdot').className='sdot err'; $('slbl').textContent='Server offline'; }
+  try{ await GET('/health'); $('sdot').className='sdot ok'; $('slbl').textContent='Running'; }
+  catch{ $('sdot').className='sdot err'; $('slbl').textContent='App not running'; }
 }
 
 // ─── Modal helpers ────────────────────────────────────────────────────────────
@@ -2083,7 +2089,7 @@ async function init(){
   const _today=new Date(); $('chd').value=`${_today.getFullYear()}-${String(_today.getMonth()+1).padStart(2,'0')}-${String(_today.getDate()).padStart(2,'0')}`;
 
   await checkConn();
-  setInterval(checkConn,30000);
+  setInterval(checkConn,5000);
 
   try{
     await Promise.all([loadRooms(),loadStaff()]);
