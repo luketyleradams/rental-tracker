@@ -77,7 +77,12 @@ if not exist "node_modules" (
   call npm install --omit=dev
   if !errorlevel! neq 0 (
     echo.
-    echo  ERROR: npm install failed. Check your internet connection and try again.
+    echo  ERROR: npm install failed.
+    echo.
+    echo  Common causes:
+    echo    - No internet connection. Connect and try again.
+    echo    - Missing build tools for native modules.
+    echo      Fix: run  runtime\install_tools.bat  then try again.
     pause
     exit /b 1
   )

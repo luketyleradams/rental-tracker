@@ -5,3 +5,5 @@
 .env
 dist/
 build/
+data/*.db-shm
+data/*.db-wal
