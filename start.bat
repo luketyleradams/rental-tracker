@@ -74,7 +74,7 @@ if !errorlevel! equ 42 (
 
 :: ── 4. Install / repair dependencies ─────────────────────────────────────────
 if exist "%APP%\node_modules" (
-  node -e "require('%APP%/node_modules/better-sqlite3')" >nul 2>&1
+  node -e "require(process.env.APP+'/node_modules/better-sqlite3')" >nul 2>&1
   if !errorlevel! neq 0 (
     echo  Rebuilding dependencies for this platform...
     echo.
@@ -85,7 +85,7 @@ if exist "%APP%\node_modules" (
 if not exist "%APP%\node_modules" (
   echo  Installing dependencies. This takes about 30 seconds on the first run...
   echo.
-  call npm install --omit=dev --prefix "%APP%"
+  pushd "%APP%" && call npm install --omit=dev && popd
   if !errorlevel! neq 0 (
     echo.
     echo  ERROR: npm install failed.
