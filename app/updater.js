@@ -10,11 +10,11 @@ const ROOT    = __dirname;
 const LOCAL   = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
 const CURRENT = LOCAL.version || '0.0.0';
 
-const RAW_PKG = 'https://raw.githubusercontent.com/luketyleradams/rental-tracker/main/package.json';
+const RAW_PKG = 'https://raw.githubusercontent.com/luketyleradams/rental-tracker/main/app/package.json';
 const ZIP_URL = 'https://github.com/luketyleradams/rental-tracker/archive/refs/heads/main.zip';
 
-// Never overwrite these — user data and platform-specific files
-const SKIP = new Set(['data', 'node_modules', 'backups', 'runtime', '.git', '.gitignore']);
+// Never overwrite these — user data directories
+const SKIP = new Set(['data', 'node_modules', 'backups']);
 
 function semverGt(a, b) {
   const pa = a.split('.').map(Number);
@@ -135,10 +135,16 @@ async function main() {
     process.exit(0);
   }
 
-  // 5. Copy new files over, preserving user data
+  // 5. Sync app/ subfolder from zip into this directory, preserving user data
   console.log('  Installing update...');
+  const appSrc = path.join(tmpDir, subDir, 'app');
+  if (!fs.existsSync(appSrc)) {
+    console.log('  Unexpected archive structure. Continuing with current version.');
+    cleanup(tmpZip, tmpDir);
+    process.exit(0);
+  }
   try {
-    syncDir(path.join(tmpDir, subDir), ROOT);
+    syncDir(appSrc, ROOT);
   } catch (e) {
     console.log(`  Install failed (${e.message}). Continuing with current version.`);
     cleanup(tmpZip, tmpDir);
