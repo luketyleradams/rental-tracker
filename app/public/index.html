@@ -4,7 +4,7 @@
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
 <title>Rental Tracker</title>
-<script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
+<script src="xlsx.min.js"></script>
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 :root{
@@ -45,7 +45,7 @@ h1 .dot{width:9px;height:9px;border-radius:50%;background:var(--grn);display:inl
 .mc .mv{font-size:21px;font-weight:600}
 
 /* cards */
-.card{background:var(--bg);border:1px solid var(--bdr);border-radius:var(--rl);padding:1rem 1.2rem;margin-bottom:1rem}
+.card{background:var(--bg);border:1px solid var(--bdr);border-radius:var(--rl);padding:1rem 1.2rem;margin-bottom:1rem;overflow-x:auto}
 .ct{font-size:11px;font-weight:600;color:var(--t2);text-transform:uppercase;letter-spacing:.07em;margin-bottom:.9rem}
 .fr{display:grid;grid-template-columns:repeat(auto-fit,minmax(135px,1fr));gap:10px;margin-bottom:10px}
 .fg label{font-size:12px;color:var(--t2);display:block;margin-bottom:4px}
@@ -148,12 +148,19 @@ tbody tr:hover td{background:var(--bg2)}
 .bchecks label{display:flex;align-items:center;gap:5px;cursor:pointer;font-size:13px}
 .bchecks input[type=checkbox]{width:auto}
 
+@media (max-width:768px){
+  .two-col{grid-template-columns:1fr}
+  table{table-layout:auto}
+  .card{overflow-x:auto}
+}
+
 @media print{
   body{background:#fff}
   .wrap{max-width:100%;padding:0}
   .tabs,.topbar,.card:not(.rcard){display:none!important}
   .sec:not(#tab-reports){display:none!important}
   #tab-reports.sec{display:block!important}
+  .no-print{display:none!important}
 }
 </style>
 </head>
@@ -431,8 +438,8 @@ tbody tr:hover td{background:var(--bg2)}
     </div>
     <div style="display:flex;gap:8px">
       <button class="btn p" onclick="genReport()">Preview report</button>
-      <button class="btn s" onclick="printReport()">Print / Save PDF</button>
-      <button class="btn" onclick="exportExcel()">Export to Excel</button>
+      <button class="btn s no-print" onclick="printReport()">Print / Save PDF</button>
+      <button class="btn no-print" onclick="exportExcel()">Export to Excel</button>
     </div>
   </div>
   <div id="rep-out"></div>
@@ -452,6 +459,7 @@ const MRATE = 0.70; // IRS standard mileage rate — update each January (2025: 
 // ─── Utilities ────────────────────────────────────────────────────────────────
 const $ = id => document.getElementById(id);
 const fmt = n => '$' + (+(n ?? 0)).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
+const esc = s => String(s??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 const fmtMo = m => { if(!m) return ''; const[y,mo]=m.split('-'); return new Date(+y,+mo-1,1).toLocaleDateString('en-US',{month:'long',year:'numeric'}); };
 const round2 = n => Math.round(n * 100) / 100;
 const ini = n => n.trim().split(/\s+/).map(w=>w[0]).join('').toUpperCase().slice(0,2);
@@ -905,7 +913,7 @@ async function loadPay(){
     rows.forEach(p=>{
       const btn=trashBtn(()=>delPay(p.id),'Delete payment');
       const lateCell=p.days_late>0?`${p.days_late}d${p.late_fee>0?' · '+fmt(p.late_fee):''}`:' — ';
-      const tr=mkEl('tr',{},[`<td>${p.building}</td><td>${p.number}</td><td>${fmtMo(p.month)}</td><td>${fmt(p.amount)}</td><td style="color:var(--t2)">${lateCell}</td><td style="color:var(--t2)">${p.notes||'—'}</td><td></td>`]);
+      const tr=mkEl('tr',{},[`<td>${esc(p.building)}</td><td>${esc(p.number)}</td><td>${fmtMo(p.month)}</td><td>${fmt(p.amount)}</td><td style="color:var(--t2)">${lateCell}</td><td style="color:var(--t2)">${esc(p.notes||'—')}</td><td></td>`]);
       tr.lastElementChild.appendChild(btn); tb.appendChild(tr);
     });
     t.appendChild(tb); $('pay-tbl').innerHTML=''; $('pay-tbl').appendChild(t);
@@ -934,7 +942,7 @@ async function loadOtherIncome(){
     t.innerHTML=`<thead><tr><th>Building</th><th>Category</th><th>Amount</th><th>Description</th><th style="width:62px"></th></tr></thead>`;
     const tb=document.createElement('tbody');
     rows.forEach(r=>{
-      const tr=mkEl('tr',{},[`<td>${bldDisplay(r.building)}</td><td><span class="badge bb">${OI_LABEL[r.category]||r.category}</span></td><td>${fmt(r.amount)}</td><td style="color:var(--t2)">${r.description||'—'}</td><td></td>`]);
+      const tr=mkEl('tr',{},[`<td>${esc(bldDisplay(r.building))}</td><td><span class="badge bb">${OI_LABEL[r.category]||r.category}</span></td><td>${fmt(r.amount)}</td><td style="color:var(--t2)">${esc(r.description||'—')}</td><td></td>`]);
       tr.lastElementChild.appendChild(trashBtn(()=>delOtherIncome(r.id),'Delete income'));
       tb.appendChild(tr);
     });
@@ -1058,7 +1066,7 @@ async function loadExp(){
          <td>${fmtMo(e.month)}</td>
          <td style="color:var(--t2)">${e.hours!=null?e.hours+' hrs':e.miles!=null?e.miles.toLocaleString()+' mi':'—'}</td>
          <td>${fmt(e.amount)}</td>
-         <td style="color:var(--t2)${e.staff_id?';font-weight:600':''}">${e.description||'—'}</td><td></td>`
+         <td style="color:var(--t2)${e.staff_id?';font-weight:600':''}">${esc(e.description||'—')}</td><td></td>`
       ]);
       const wrap=document.createElement('div');
       wrap.style='display:flex;gap:4px';
@@ -1089,9 +1097,9 @@ async function loadCharges(){
     const tb=document.createElement('tbody');
     rows.forEach(a=>{
       const tr=document.createElement('tr');
-      tr.innerHTML=`<td>${a.date}</td><td>${a.building}</td><td>${a.number}</td>
+      tr.innerHTML=`<td>${esc(a.date)}</td><td>${esc(a.building)}</td><td>${esc(a.number)}</td>
         <td><strong style="color:var(--red)">${fmt(a.amount)}</strong></td>
-        <td style="color:var(--t2)">${a.note||'—'}</td><td></td>`;
+        <td style="color:var(--t2)">${esc(a.note||'—')}</td><td></td>`;
       const wrap=document.createElement('div');
       wrap.style='display:flex;gap:4px';
       const forgiveBtn=document.createElement('button');
@@ -1136,10 +1144,10 @@ async function loadAdj(){
     rows.forEach(a=>{
       const displayType=a.type==='charge'?'charge (forgiven)':a.type;
       const tr=document.createElement('tr');
-      tr.innerHTML=`<td>${a.date}</td><td>${a.building}</td><td>${a.number}</td>
+      tr.innerHTML=`<td>${esc(a.date)}</td><td>${esc(a.building)}</td><td>${esc(a.number)}</td>
         <td><span class="badge ${BC[a.type]||'bgr'}">${LABEL[a.type]||a.type}</span></td>
         <td>${fmt(a.amount)}</td>
-        <td style="color:var(--t2)">${a.note||'—'}</td><td></td>`;
+        <td style="color:var(--t2)">${esc(a.note||'—')}</td><td></td>`;
       if(a.type!=='charge'){
         tr.lastElementChild.appendChild(trashBtn(()=>delAdj(a.id),'Delete'));
       }
@@ -1226,7 +1234,7 @@ async function loadSalRoster(){
       const av=mkEl('div',{class:'sav',style:avStyle},[ini(s.name)]);
       const rateLabel=isHourly?`$${s.pay}/hr`:`$${s.pay.toLocaleString()}/mo`;
       const info=mkEl('div',{style:'flex:1;min-width:0'},
-        [`<div style="font-size:13px;font-weight:600">${s.name}</div>`,
+        [`<div style="font-size:13px;font-weight:600">${esc(s.name)}</div>`,
          `<div style="font-size:11px;color:var(--t2)">${s.role||'—'} · ${rateLabel}</div>`]);
       row.appendChild(av); row.appendChild(info);
 
@@ -1441,7 +1449,7 @@ async function payAllStaff(){
 }
 
 // ─── ROOMS ────────────────────────────────────────────────────────────────────
-async function loadRooms(){ ROOMS=await GET('/rooms'); fillBuildings(); }
+async function loadRooms(){ try{ ROOMS=await GET('/rooms'); fillBuildings(); }catch(e){ console.error('loadRooms failed:',e.message); } }
 
 async function addRoom(){
   const bld=$('nrb').value.trim(), num=$('nrn').value.trim(), rent=parseFloat($('nrr').value);
@@ -1714,7 +1722,7 @@ window.submitPeriod=async function(roomId){
 };
 
 // ─── STAFF ────────────────────────────────────────────────────────────────────
-async function loadStaff(){ STAFF=await GET('/staff'); fillBuildings(); }
+async function loadStaff(){ try{ STAFF=await GET('/staff'); fillBuildings(); }catch(e){ console.error('loadStaff failed:',e.message); } }
 
 document.querySelectorAll('input[name="sfpt"]').forEach(r=>r.addEventListener('change',()=>{
   $('sfp-lbl').textContent=r.value==='hourly'?'Hourly rate ($/hr)':'Monthly salary ($)';
@@ -1756,7 +1764,7 @@ function renderStaff(){
     const row=mkEl('div',{class:'sline'});
     const av=mkEl('div',{class:'sav'},[ini(s.name)]);
     const info=mkEl('div',{style:'flex:1'},
-      [`<div style="font-size:13px;font-weight:600">${s.name}</div>`,
+      [`<div style="font-size:13px;font-weight:600">${esc(s.name)}</div>`,
        `<div style="font-size:11px;color:var(--t2)">${s.role||'—'} · ${bldDisplay(s.building)}</div>`]);
     const pw=mkEl('div',{style:'display:flex;align-items:center;gap:7px'});
     const btnId='spb-'+s.id;
@@ -1809,7 +1817,7 @@ async function loadDash(){
         const adjBtn=rm.arrears>0
           ?`<button class="btn d xs" onclick="openAdjModal('${rm.room_id}','${rm.last_period_id||''}',${-rm.arrears},'${rm.last_period_end_date||''}')">Handle</button>`
           :'—';
-        rows.push(`<tr><td>${rm.building}</td><td>${rm.number}</td><td><span class="badge bgr">Vacant</span></td><td>—</td><td>—</td><td>—</td><td>—</td><td>${rm.arrears>0?`<span class="badge br">Arrears ${fmt(rm.arrears)}</span>`:'—'}</td><td>${adjBtn}</td></tr>`);
+        rows.push(`<tr><td>${esc(rm.building)}</td><td>${esc(rm.number)}</td><td><span class="badge bgr">Vacant</span></td><td>—</td><td>—</td><td>—</td><td>—</td><td>${rm.arrears>0?`<span class="badge br">Arrears ${fmt(rm.arrears)}</span>`:'—'}</td><td>${adjBtn}</td></tr>`);
         return;
       }
       const bc=STATUS_BADGE[rm.status]||'bgr';
@@ -1821,7 +1829,7 @@ async function loadDash(){
         ?`${fmt(rm.pro.prorated)}<br><small style="color:var(--amb)">2 tenants</small>`
         :rm.pro?(rm.pro.fullMonth?fmt(rm.pro.prorated):`${fmt(rm.pro.prorated)}<br><small style="color:var(--t2)">${rm.pro.days}/${rm.pro.totalDays} days</small>`):'—';
       const action=(rm.status==='short'||rm.status==='unpaid')?`<button class="btn w xs" onclick="openAdjModal('${rm.room_id}','${rm.period?.id||''}',${rm.diff})">Adjust</button>`:'—';
-      rows.push(`<tr><td>${rm.building}</td><td>${rm.number}</td><td><span class="badge bg">Occupied</span></td><td>${carry}</td><td>${rentCell}</td><td><strong>${fmt(rm.due)}</strong></td><td>${fmt(rm.paid)}</td><td><span class="badge ${bc}">${label}</span></td><td>${action}</td></tr>`);
+      rows.push(`<tr><td>${esc(rm.building)}</td><td>${esc(rm.number)}</td><td><span class="badge bg">Occupied</span></td><td>${carry}</td><td>${rentCell}</td><td><strong>${fmt(rm.due)}</strong></td><td>${fmt(rm.paid)}</td><td><span class="badge ${bc}">${label}</span></td><td>${action}</td></tr>`);
 
       // Per-tenant breakdown row for multi-tenant months
       if(multiTenant&&rm.periods&&rm.periods.length){
@@ -2015,7 +2023,7 @@ function buildReport(d,titleOverride){
     const expectedCell=grossDue!==r.totalDue
       ?`${fmt(grossDue)}${r.totalForgiven>0.005?`<br><small style="color:var(--amb)">(−${fmt(r.totalForgiven)} forgiven)</small>`:''}${(r.totalWriteoff||0)>0.005?`<br><small style="color:var(--t2)">(−${fmt(r.totalWriteoff)} written off)</small>`:''}<br><small style="font-weight:600">${fmt(r.totalDue)} net</small>`
       :fmt(r.totalDue);
-    return`<tr><td>${r.building}</td><td>${r.number}</td>
+    return`<tr><td>${esc(r.building)}</td><td>${esc(r.number)}</td>
       <td style="text-align:right">${expectedCell}</td>
       <td style="text-align:right">${fmt(r.totalPaid)}</td>
       <td style="text-align:right;color:${r.diff>=0?'var(--grn)':'var(--red)'}">
@@ -2030,16 +2038,16 @@ function buildReport(d,titleOverride){
   (d.expenses||[]).forEach(e=>{if(!_expGroups[e.category])_expGroups[e.category]=[];_expGroups[e.category].push(e);});
   const expDetailRows=Object.entries(_expGroups).map(([cat,items])=>{
     const catTotal=items.reduce((s,e)=>s+e.amount,0);
-    const itemRows=items.map((e,i)=>`<tr><td>${i===0?CAT[cat]||cat:''}</td><td style="color:var(--t2)">${e.description||'—'}</td><td style="text-align:right">${fmt(e.amount)}</td></tr>`).join('');
+    const itemRows=items.map((e,i)=>`<tr><td>${i===0?CAT[cat]||cat:''}</td><td style="color:var(--t2)">${esc(e.description||'—')}</td><td style="text-align:right">${fmt(e.amount)}</td></tr>`).join('');
     const subtotal=items.length>1?`<tr><td></td><td style="font-size:12px;color:var(--t2)">Category total</td><td style="text-align:right;font-weight:600;border-top:1px solid var(--bdr)">${fmt(catTotal)}</td></tr>`:'';
     return itemRows+subtotal;
   }).join('');
   const adjRows=(d.adjustments||[]).map(a=>
-    `<tr><td>${a.date}</td><td>${a.building} ${a.number}</td><td>${a.type==='forgiven'?'Forgiven (offsets income)':a.type==='writeoff'?'Written off (bad debt)':a.type==='charge'?'Extra charge':'Refund'}</td><td style="text-align:right">${fmt(a.amount)}</td><td>${a.note||'—'}</td></tr>`
+    `<tr><td>${esc(a.date)}</td><td>${esc(a.building)} ${esc(a.number)}</td><td>${a.type==='forgiven'?'Forgiven (offsets income)':a.type==='writeoff'?'Written off (bad debt)':a.type==='charge'?'Extra charge':'Refund'}</td><td style="text-align:right">${fmt(a.amount)}</td><td>${esc(a.note||'—')}</td></tr>`
   ).join('');
-  const salRows=(d.salaries||[]).map(e=>`<tr><td>${fmtMo(e.month)}</td><td>${bldDisplay(e.building)}</td><td>${e.description}</td><td style="text-align:right">${fmt(e.amount)}</td></tr>`).join('');
+  const salRows=(d.salaries||[]).map(e=>`<tr><td>${fmtMo(e.month)}</td><td>${esc(bldDisplay(e.building))}</td><td>${esc(e.description)}</td><td style="text-align:right">${fmt(e.amount)}</td></tr>`).join('');
   const salTotal=(d.salaries||[]).reduce((s,e)=>s+e.amount,0);
-  const payRows=(d.payments||[]).map(p=>`<tr><td>${fmtMo(p.month)}</td><td>${p.building}</td><td>${p.number}</td><td style="text-align:right">${fmt(p.amount)}</td><td>${p.notes||'—'}</td></tr>`).join('');
+  const payRows=(d.payments||[]).map(p=>`<tr><td>${fmtMo(p.month)}</td><td>${esc(p.building)}</td><td>${esc(p.number)}</td><td style="text-align:right">${fmt(p.amount)}</td><td>${esc(p.notes||'—')}</td></tr>`).join('');
   const th=(cols,right=[])=>cols.map(c=>`<th style="text-align:${right.includes(c)?'right':'left'}">${c}</th>`).join('');
   const trow=`<tr class="trow">`;
 

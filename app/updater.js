@@ -33,7 +33,11 @@ function get(url, timeout = 15000) {
     const req = mod.get(url, { timeout }, res => {
       // Follow redirects (GitHub zip redirects to CDN)
       if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
-        return get(res.headers.location, timeout).then(resolve).catch(reject);
+        const loc = res.headers.location;
+        if (loc.startsWith('http://')) {
+          return reject(new Error('Redirected to insecure HTTP URL — aborting update'));
+        }
+        return get(loc, timeout).then(resolve).catch(reject);
       }
       if (res.statusCode !== 200) return reject(new Error(`HTTP ${res.statusCode}`));
       const chunks = [];
@@ -64,6 +68,19 @@ function syncDir(src, dst) {
     const dstPath = path.join(dst, entry);
     if (fs.statSync(srcPath).isDirectory()) {
       syncDir(srcPath, dstPath);
+    } else {
+      fs.copyFileSync(srcPath, dstPath);
+    }
+  }
+}
+
+function copyDir(src, dst) {
+  fs.mkdirSync(dst, { recursive: true });
+  for (const entry of fs.readdirSync(src)) {
+    const srcPath = path.join(src, entry);
+    const dstPath = path.join(dst, entry);
+    if (fs.statSync(srcPath).isDirectory()) {
+      copyDir(srcPath, dstPath);
     } else {
       fs.copyFileSync(srcPath, dstPath);
     }
@@ -144,11 +161,26 @@ async function main() {
     cleanup(tmpZip, tmpDir);
     process.exit(0);
   }
+  // 5a. Back up current app/ before overwriting
+  const backupDir = path.join(os.tmpdir(), `rental-tracker-backup-${Date.now()}`);
+  try {
+    copyDir(ROOT, backupDir);
+  } catch (e) {
+    console.log(`  Could not create backup (${e.message}). Continuing with current version.`);
+    cleanup(tmpZip, tmpDir, backupDir);
+    process.exit(0);
+  }
+
   try {
     syncDir(appSrc, ROOT);
   } catch (e) {
-    console.log(`  Install failed (${e.message}). Continuing with current version.`);
-    cleanup(tmpZip, tmpDir);
+    console.log(`  Install failed (${e.message}). Rolling back to previous version.`);
+    try {
+      syncDir(backupDir, ROOT);
+    } catch (re) {
+      console.log(`  Rollback also failed (${re.message}). Manual repair may be needed.`);
+    }
+    cleanup(tmpZip, tmpDir, backupDir);
     process.exit(0);
   }
 
@@ -162,7 +194,7 @@ async function main() {
     }
   }
 
-  cleanup(tmpZip, tmpDir);
+  cleanup(tmpZip, tmpDir, backupDir);
   console.log(`  Updated to v${latest}!`);
   console.log('');
   // Exit code 42 = updated; start scripts will re-run npm install

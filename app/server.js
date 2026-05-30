@@ -1,7 +1,8 @@
 'use strict';
 
-const path = require('path');
-const fs   = require('fs');
+const path   = require('path');
+const fs     = require('fs');
+const crypto = require('crypto');
 
 // ─── Paths (cross-platform) ───────────────────────────────────────────────────
 const ROOT       = __dirname;
@@ -144,7 +145,7 @@ db.exec(`
 const MILEAGE_RATE = 0.725;
 
 function uid() {
-  return Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+  return crypto.randomBytes(8).toString('hex');
 }
 
 function round2(n) {
