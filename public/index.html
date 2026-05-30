@@ -223,7 +223,7 @@ tbody tr:hover td{background:var(--bg2)}
     <div class="sh"><h2>Payment history</h2>
       <div class="frow">
         <div id="fpb-ms"></div>
-        <input type="month" id="fpm" onchange="loadPay()"/>
+        <input type="month" id="fpm" onchange="setGlobalMo(this.value);loadPay()"/>
       </div>
     </div>
     <div id="pay-tbl"></div>
@@ -274,7 +274,7 @@ tbody tr:hover td{background:var(--bg2)}
     <div style="display:flex;align-items:center;gap:12px;margin-bottom:1rem;flex-wrap:wrap">
       <div style="display:flex;align-items:center;gap:8px">
         <label style="font-size:12px;color:var(--t2);white-space:nowrap">Pay month</label>
-        <input type="month" id="sm" onchange="loadSalRoster()" style="padding:6px 10px;border:1px solid var(--bdr2);border-radius:var(--r);font-size:13px;background:var(--bg);color:var(--text);font-family:inherit"/>
+        <input type="month" id="sm" onchange="setGlobalMo(this.value);loadSalRoster()" style="padding:6px 10px;border:1px solid var(--bdr2);border-radius:var(--r);font-size:13px;background:var(--bg);color:var(--text);font-family:inherit"/>
       </div>
       <button class="btn p xs" onclick="payAllStaff()">Pay all unpaid</button>
     </div>
@@ -308,7 +308,7 @@ tbody tr:hover td{background:var(--bg2)}
           <option value="writeoff">Write-offs</option>
           <option value="misc">Misc (legacy)</option>
         </select>
-        <input type="month" id="fem" onchange="loadExp()"/>
+        <input type="month" id="fem" onchange="setGlobalMo(this.value);loadExp()"/>
       </div>
     </div>
     <div id="exp-tbl"></div>
@@ -612,6 +612,17 @@ function refillRooms(){
   payPreview();
 }
 
+// ─── Shared month ─────────────────────────────────────────────────────────────
+function setGlobalMo(mo){
+  CUR_MO=mo;
+  $('fpm').value=mo;
+  $('fem').value=mo;
+  $('sm').value=mo;
+  $('pm').value=mo;
+  $('pm-lbl').textContent=fmtMo(mo);
+  payPreview();
+}
+
 // ─── Tab navigation ───────────────────────────────────────────────────────────
 const TAB_ACTIONS = {
   dashboard:()=>loadDash(),
@@ -630,21 +641,16 @@ function go(tab){
 }
 
 // ─── Month navigation ─────────────────────────────────────────────────────────
-function setPayMo(mo){
-  $('pm').value=mo;
-  $('pm-lbl').textContent=fmtMo(mo);
-  payPreview();
-}
+function setPayMo(mo){ setGlobalMo(mo); }
 function shiftPayMo(d){
-  const cur=$('pm').value||CUR_MO;
-  const[y,m]=cur.split('-').map(Number);
+  const[y,m]=(CUR_MO).split('-').map(Number);
   const dt=new Date(Date.UTC(y,m-1+d,1));
-  setPayMo(`${dt.getUTCFullYear()}-${String(dt.getUTCMonth()+1).padStart(2,'0')}`);
+  setGlobalMo(`${dt.getUTCFullYear()}-${String(dt.getUTCMonth()+1).padStart(2,'0')}`);
 }
 function shiftMo(d){
   const[y,m]=CUR_MO.split('-').map(Number);
   const dt=new Date(Date.UTC(y,m-1+d,1));
-  CUR_MO=`${dt.getUTCFullYear()}-${String(dt.getUTCMonth()+1).padStart(2,'0')}`;
+  setGlobalMo(`${dt.getUTCFullYear()}-${String(dt.getUTCMonth()+1).padStart(2,'0')}`);
   loadDash();
 }
 
@@ -704,7 +710,7 @@ async function delPay(id){
 }
 
 async function loadPay(){
-  const mf=$('fpm').value;
+  const mf=$('fpm').value||CUR_MO;
   const qs=new URLSearchParams(); if(mf) qs.set('month',mf);
   try{
     let rows=await GET(`/payments?${qs}`);
@@ -760,7 +766,7 @@ async function delExp(id){
 }
 
 async function loadExp(){
-  const mf=$('fem').value, cf=$('fec').value;
+  const mf=$('fem').value||CUR_MO, cf=$('fec').value;
   const qs=new URLSearchParams();
   if(mf) qs.set('month',mf); if(cf) qs.set('category',cf);
   const CAT_LABELS={advertising:'Advertising',auto_travel:'Auto & Travel',cleaning_maintenance:'Cleaning & Maint.',commissions:'Commissions',insurance:'Insurance',legal_professional:'Legal & Prof.',management_fees:'Management',mortgage_interest:'Mortgage Interest',other_interest:'Other Interest',repairs:'Repairs',supplies:'Supplies',taxes:'Taxes',utilities:'Utilities',depreciation:'Depreciation',other_expenses:'Other Expenses',miles:'Mileage',salaries:'Salaries',refund:'Refund',writeoff:'Write-off',misc:'Misc'};
