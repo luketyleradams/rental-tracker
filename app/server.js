@@ -1096,7 +1096,7 @@ app.get('/api/report', h((req, res) => {
       totalForgiven:round2(forgiven),
       totalWriteoff:round2(writeoffs),
       totalCharged: round2(charged),
-      diff:         round2(paid - netDue)
+      diff:         round2(paid - (netDue + forgiven + writeoffs))
     };
   });
 

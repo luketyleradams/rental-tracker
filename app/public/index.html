@@ -1906,8 +1906,8 @@ async function exportExcel(){
     // Room Summary sheet
     if(d.roomSummary?.length){
       const rows=[['Building','Room','Expected','Collected','Forgiven','Written Off','Difference']];
-      d.roomSummary.forEach(r=>rows.push([r.building,r.number,r.totalDue,r.totalPaid,r.totalForgiven||0,r.totalWriteoff||0,r.diff]));
-      const xlTotalDue=round2(d.roomSummary.reduce((s,r)=>s+r.totalDue,0));
+      d.roomSummary.forEach(r=>rows.push([r.building,r.number,round2(r.totalDue+(r.totalForgiven||0)+(r.totalWriteoff||0)),r.totalPaid,r.totalForgiven||0,r.totalWriteoff||0,r.diff]));
+      const xlTotalDue=round2(d.roomSummary.reduce((s,r)=>s+r.totalDue+(r.totalForgiven||0)+(r.totalWriteoff||0),0));
       const xlTotalPaid=round2(d.roomSummary.reduce((s,r)=>s+r.totalPaid,0));
       const xlTotalDiff=round2(d.roomSummary.reduce((s,r)=>s+r.diff,0));
       rows.push(['','Total',xlTotalDue,xlTotalPaid,'','',xlTotalDiff]);
@@ -1984,7 +1984,7 @@ function buildMonthReport(d,mo){
     const moRefunds  =round2(adjustments.filter(a=>a.room_id===r.id&&a.type==='refund').reduce((s,a)=>s+a.amount,0));
     // Net obligation matches dashboard: rent + charges − forgiven − writeoffs − refunds
     const moDue      =round2(moRent+moCharged-moForgiven-moWriteoffs-moRefunds);
-    const moDiff     =round2(moPaid-moDue);
+    const moDiff     =round2(moPaid-(moDue+moForgiven+moWriteoffs));
     return{...r,totalDue:moDue,totalPaid:moPaid,totalForgiven:moForgiven,
            totalWriteoff:moWriteoffs,totalCharged:moCharged,diff:moDiff};
   }).filter(r=>r.totalDue>0||r.totalPaid>0); // skip rooms with no activity this month
